@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  nexuswa:
+    build: .
+    container_name: nexuswa_api
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_PORT=8082
+      - GLOBAL_API_KEY=8msyqcp4o7065sz1nxdg8y69kp7gduijvb0zptz867
+      - WEBHOOK_URL=http://localhost:3000/webhook
+    restart: always
+    networks:
+      - nexus_net
+
+networks:
+  nexus_net:
+    driver: bridge

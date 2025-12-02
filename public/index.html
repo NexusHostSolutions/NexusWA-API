@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusWA | Super Admin</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f0f2f5; }
+        .wa-green { background-color: #00a884; }
+        .wa-dark { background-color: #111b21; }
+        .wa-sidebar { background-color: #ffffff; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #b3b3b3; }
+
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+    const { useState, useEffect } = React;
+    const API_URL = "http://localhost:8082/v1";
+
+    const Toast = ({ message, type, onClose }) => {
+        useEffect(() => {
+            const timer = setTimeout(onClose, 3000);
+            return () => clearTimeout(timer);
+        }, []);
+
+        const colors = type === 'error' ? 'bg-red-500' : 'bg-green-500';
+
+        return (
+            <div className={`fixed top-5 right-5 ${colors} text-white px-6 py-3 rounded shadow-lg z-50 fade-in flex items-center gap-2`}>
+                {type === 'error' ? <i className="ph ph-warning-circle text-xl"></i> : <i className="ph ph-check-circle text-xl"></i>}
+                {message}
+            </div>
+        );
+    };
+
+    const LoginScreen = ({ onLogin }) => {
+        const [key, setKey] = useState('');
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            if(key.length > 3) {
+                onLogin(key);
+            }
+        };
+
+        return (
+            <div className="min-h-screen wa-green flex items-center justify-center relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-32 bg-emerald-600 opacity-20"></div>
+                <div className="bg-white p-10 rounded-lg shadow-2xl w-full max-w-md z-10 fade-in text-center">
+                    <div className="mb-6 flex justify-center">
+                        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center">
+                            <i className="ph-fill ph-whatsapp-logo text-4xl text-emerald-600"></i>
+                        </div>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-800 mb-2">NexusWA Admin</h2>
+                    <p className="text-gray-500 mb-8">Ambiente de Produção (WhatsMeow)</p>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="text-left">
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Global API Key</label>
+                            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} className="w-full mt-1 p-3 border border-gray-300 rounded focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition" placeholder="Sua chave secreta" />
+                        </div>
+                        <button type="submit" className="w-full wa-green hover:bg-emerald-700 text-white font-bold py-3 rounded transition shadow-lg">ACESSAR PAINEL</button>
+                    </form>
+                </div>
+            </div>
+        );
+    };
+
+    const Dashboard = ({ apiKey, onLogout }) => {
+        const [activeTab, setActiveTab] = useState('instances'); 
+        const [instances, setInstances] = useState([]);
+        const [loading, setLoading] = useState(false);
+        const [modalQR, setModalQR] = useState(null);
+        const [toast, setToast] = useState(null);
+
+        useEffect(() => {
+            const saved = localStorage.getItem('nexus_instances');
+            if (saved) setInstances(JSON.parse(saved));
+        }, []);
+
+        const saveInstances = (newInstances) => {
+            setInstances(newInstances);
+            localStorage.setItem('nexus_instances', JSON.stringify(newInstances));
+        };
+
+        const showToast = (msg, type = 'success') => {
+            setToast({ msg, type });
+        };
+
+        const addInstance = () => {
+            const name = prompt("Nome da nova instância:");
+            if (name) {
+                const newInst = { name, status: 'disconnected', lastActivity: '-' };
+                saveInstances([...instances, newInst]);
+            }
+        };
+
+        const deleteInstance = (name) => {
+            if(confirm('Tem certeza que deseja remover esta instância?')) {
+                saveInstances(instances.filter(i => i.name !== name));
+            }
+        };
+
+        const connectInstance = async (name) => {
+            setLoading(true);
+            try {
+                const res = await fetch(`${API_URL}/instance/${name}/connect`, {
+                    method: 'POST',
+                    headers: { 'apikey': apiKey }
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    if (data.message === "Already connected" || data.message === "Session restored from database") {
+                        const updated = instances.map(i => i.name === name ? {...i, status: 'connected'} : i);
+                        saveInstances(updated);
+                        showToast('Instância conectada automaticamente!');
+                    } else if(data.qrcode) {
+                        const updated = instances.map(i => i.name === name ? {...i, status: 'connecting'} : i);
+                        saveInstances(updated);
+                        setModalQR({ name, code: data.qrcode });
+                        showToast('QR Code gerado! Escaneie agora.');
+                    }
+                } else {
+                    showToast(data.message || 'Erro ao conectar', 'error');
+                }
+            } catch (err) {
+                showToast('Erro de conexão com o servidor', 'error');
+            }
+            setLoading(false);
+        };
+
+        const logoutInstance = async (name) => {
+             setLoading(true);
+            try {
+                const res = await fetch(`${API_URL}/instance/${name}/logout`, {
+                    method: 'POST',
+                    headers: { 'apikey': apiKey }
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const updated = instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i);
+                    saveInstances(updated);
+                    showToast('Instância desconectada.');
+                }
+            } catch (err) {
+                showToast('Erro ao desconectar', 'error');
+            }
+            setLoading(false);
+        };
+
+        const QRModal = () => {
+            if (!modalQR) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 fade-in p-4">
+                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center relative">
+                        <div className="absolute top-2 right-2">
+                             <button onClick={() => setModalQR(null)} className="text-gray-400 hover:text-gray-600"><i className="ph ph-x text-xl"></i></button>
+                        </div>
+                        <h3 className="text-xl font-bold mb-2">Escaneie o QR Code</h3>
+                        <p className="text-sm text-gray-500 mb-4">Abra o WhatsApp > Aparelhos Conectados > Conectar</p>
+                        
+                        <div className="border-4 border-emerald-500 p-2 inline-block rounded-lg mb-4 bg-white">
+                            <img src={modalQR.code} alt="QR Code" className="w-60 h-60 object-contain" />
+                        </div>
+                        
+                        <p className="text-xs text-gray-400 mb-4">Instância: <span className="font-bold">{modalQR.name}</span></p>
+                        <button onClick={() => {
+                            // Marca como conectado visualmente ao fechar (assume que o usuário escaneou)
+                            const updated = instances.map(i => i.name === modalQR.name ? {...i, status: 'connected'} : i);
+                            saveInstances(updated);
+                            setModalQR(null);
+                        }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded transition">
+                            Já Escaneiei
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const renderInstances = () => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div onClick={addInstance} className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center text-gray-400 hover:border-emerald-500 hover:text-emerald-500 cursor-pointer transition h-48 hover:bg-gray-50">
+                    <i className="ph ph-plus-circle text-4xl mb-2"></i>
+                    <span className="font-semibold">Nova Instância</span>
+                </div>
+                {instances.map((inst) => (
+                    <div key={inst.name} className="bg-white rounded-lg shadow p-6 relative border-t-4 border-emerald-500 fade-in">
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">{inst.name}</h3>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className={`w-2 h-2 rounded-full ${inst.status === 'connected' ? 'bg-green-500' : inst.status === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                                    <span className="text-xs text-gray-500 uppercase font-semibold">
+                                        {inst.status === 'connected' ? 'Online' : inst.status === 'connecting' ? 'Aguardando...' : 'Desconectado'}
+                                    </span>
+                                </div>
+                            </div>
+                            <button onClick={() => deleteInstance(inst.name)} className="text-gray-300 hover:text-red-500 transition"><i className="ph ph-trash text-xl"></i></button>
+                        </div>
+                        <div className="flex gap-2 mt-6">
+                            {inst.status !== 'connected' ? (
+                                <button onClick={() => connectInstance(inst.name)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded text-sm font-semibold flex items-center justify-center gap-2 transition shadow-sm"><i className="ph ph-qr-code"></i> Conectar</button>
+                            ) : (
+                                <button onClick={() => logoutInstance(inst.name)} className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded text-sm font-semibold flex items-center justify-center gap-2 transition"><i className="ph ph-plug"></i> Desconectar</button>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+
+        const renderTester = () => (
+            <div className="bg-white rounded-lg shadow p-8 max-w-2xl mx-auto fade-in">
+                <h3 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="ph ph-paper-plane-tilt text-emerald-600"></i> Testar Envio Real</h3>
+                <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const inst = formData.get('instance');
+                    const num = formData.get('number');
+                    const txt = formData.get('text');
+                    try {
+                         const res = await fetch(`${API_URL}/message/${inst}/text`, {
+                            method: 'POST',
+                            headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ number: num, text: txt })
+                        });
+                        const d = await res.json();
+                        if(d.status === 'success' || d.messageId) showToast('Mensagem enviada com sucesso!');
+                        else showToast('Erro no envio: ' + JSON.stringify(d), 'error');
+                    } catch(err) {
+                        showToast('Erro de conexão', 'error');
+                    }
+                }}>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className="block text-sm text-gray-600 mb-1">Instância</label>
+                            <select name="instance" className="w-full border p-2 rounded bg-gray-50 focus:ring-emerald-500 focus:border-emerald-500">{instances.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}</select>
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-600 mb-1">Número (ex: 5511999999999)</label>
+                            <input name="number" type="text" className="w-full border p-2 rounded focus:ring-emerald-500 focus:border-emerald-500" placeholder="55..." required />
+                        </div>
+                    </div>
+                    <div className="mb-4">
+                        <label className="block text-sm text-gray-600 mb-1">Mensagem</label>
+                        <textarea name="text" rows="4" className="w-full border p-2 rounded focus:ring-emerald-500 focus:border-emerald-500" placeholder="Digite sua mensagem..." required></textarea>
+                    </div>
+                    <button type="submit" className="w-full wa-green hover:bg-emerald-700 text-white font-bold py-3 rounded transition shadow-lg">ENVIAR MENSAGEM</button>
+                </form>
+            </div>
+        );
+
+        const renderSettings = () => (
+            <div className="max-w-2xl mx-auto space-y-6 fade-in">
+                <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-bold mb-4 text-gray-800">Status do Sistema</h3>
+                    <div className="text-sm text-gray-600 space-y-2">
+                        <p><strong>Versão Backend:</strong> Go Fiber v1.22</p>
+                        <p><strong>Motor WhatsApp:</strong> <span className="text-emerald-600 font-bold">WhatsMeow (Produção)</span></p>
+                        <p><strong>Banco de Dados:</strong> SQLite3</p>
+                    </div>
+                </div>
+            </div>
+        );
+
+        return (
+            <div className="min-h-screen flex bg-gray-100">
+                {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+                {modalQR && <QRModal />}
+                <div className="w-64 wa-sidebar border-r border-gray-200 flex flex-col hidden md:flex">
+                    <div className="p-6 flex items-center gap-3 border-b border-gray-100"><i className="ph-fill ph-whatsapp-logo text-3xl text-emerald-600"></i><span className="font-bold text-xl text-gray-800">NexusWA</span></div>
+                    <nav className="flex-1 p-4 space-y-2">
+                        <button onClick={() => setActiveTab('instances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'instances' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-squares-four text-xl"></i> Dashboard</button>
+                        <button onClick={() => setActiveTab('test')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'test' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-lightning text-xl"></i> Testar API</button>
+                        <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'settings' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-gear text-xl"></i> Configurações</button>
+                    </nav>
+                    <div className="p-4 border-t border-gray-100"><button onClick={onLogout} className="w-full flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-3 rounded-lg transition"><i className="ph ph-sign-out text-xl"></i> Sair</button></div>
+                </div>
+                <div className="flex-1 flex flex-col h-screen overflow-hidden">
+                    <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm">
+                        <h2 className="text-xl font-bold text-gray-800 capitalize">{activeTab === 'instances' ? 'Gerenciador de Instâncias' : activeTab === 'test' ? 'Laboratório de Testes' : 'Configurações'}</h2>
+                        <div className="flex items-center gap-4"><div className="text-right hidden sm:block"><p className="text-sm font-bold text-gray-800">Super Admin</p><p className="text-xs text-green-600">● Online</p></div><div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500"><i className="ph-fill ph-user"></i></div></div>
+                    </header>
+                    <main className="flex-1 overflow-y-auto p-6">{activeTab === 'instances' && renderInstances()}{activeTab === 'test' && renderTester()}{activeTab === 'settings' && renderSettings()}</main>
+                </div>
+            </div>
+        );
+    };
+
+    const App = () => {
+        const [auth, setAuth] = useState(false);
+        const [apiKey, setApiKey] = useState('');
+        useEffect(() => {
+            const savedKey = localStorage.getItem('nexus_apikey');
+            if(savedKey) { setApiKey(savedKey); setAuth(true); }
+        }, []);
+        const handleLogin = (key) => { setApiKey(key); localStorage.setItem('nexus_apikey', key); setAuth(true); };
+        const handleLogout = () => { localStorage.removeItem('nexus_apikey'); setAuth(false); setApiKey(''); };
+        return (<React.Fragment>{auth ? <Dashboard apiKey={apiKey} onLogout={handleLogout} /> : <LoginScreen onLogin={handleLogin} />}</React.Fragment>);
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+
+</script>
+</body>
+</html>
