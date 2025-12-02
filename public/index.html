@@ -1,337 +1,372 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-br" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NexusWA | Super Admin</title>
-    
-    <!-- React & ReactDOM -->
+    <title>NexusWA | Enterprise Dashboard</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    
-    <!-- Babel para JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Phosphor Icons -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { wa: { light: '#00a884', dark: '#005c4b' }, dark: { bg: '#111b21', panel: '#202c33', text: '#e9edef' } } } }
+        }
+    </script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f0f2f5; }
-        .wa-green { background-color: #00a884; }
-        .wa-dark { background-color: #111b21; }
-        .wa-sidebar { background-color: #ffffff; }
-        
-        /* Custom Scrollbar */
+        body { font-family: 'Inter', sans-serif; }
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #b3b3b3; }
-
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+        .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
-<body>
-
+<body class="bg-gray-100 text-gray-900 dark:bg-dark-bg dark:text-dark-text transition-colors duration-300">
 <div id="root"></div>
-
 <script type="text/babel">
-
     const { useState, useEffect } = React;
     const API_URL = "http://localhost:8082/v1";
+    const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => (c == 'x' ? Math.random() * 16 | 0 : (Math.random() * 16 | 0) & 0x3 | 0x8).toString(16));
 
-    const Toast = ({ message, type, onClose }) => {
-        useEffect(() => {
-            const timer = setTimeout(onClose, 3000);
-            return () => clearTimeout(timer);
-        }, []);
-
-        const colors = type === 'error' ? 'bg-red-500' : 'bg-green-500';
-
+    // --- COMPONENTES UI ---
+    const Modal = ({ isOpen, title, onClose, children }) => {
+        if (!isOpen) return null;
         return (
-            <div className={`fixed top-5 right-5 ${colors} text-white px-6 py-3 rounded shadow-lg z-50 fade-in flex items-center gap-2`}>
-                {type === 'error' ? <i className="ph ph-warning-circle text-xl"></i> : <i className="ph ph-check-circle text-xl"></i>}
-                {message}
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in">
+                <div className="bg-white dark:bg-dark-panel rounded-xl shadow-2xl max-w-md w-full border border-gray-200 dark:border-gray-700 relative overflow-hidden">
+                    <div className="flex justify-between items-center p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                        <h3 className="font-bold text-lg dark:text-white">{title}</h3>
+                        <button onClick={onClose} className="text-gray-400 hover:text-red-500"><i className="ph-bold ph-x text-lg"></i></button>
+                    </div>
+                    <div className="p-6">{children}</div>
+                </div>
             </div>
         );
     };
 
-    const LoginScreen = ({ onLogin }) => {
-        const [key, setKey] = useState('');
+    const Toggle = ({ label, checked, onChange }) => (
+        <div className="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700 last:border-0">
+            <span className="text-sm font-medium dark:text-gray-200">{label}</span>
+            <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+            </label>
+        </div>
+    );
 
-        const handleSubmit = (e) => {
-            e.preventDefault();
-            if(key.length > 3) {
-                onLogin(key);
-            }
+    // --- PÁGINAS (Definidas FORA do componente principal para evitar bugs) ---
+
+    const SettingsPage = ({ apiKey }) => {
+        const [config, setConfig] = useState({ rejectCalls: false, ignoreGroups: false, alwaysOnline: true, syncHistory: true });
+        const save = async () => {
+            await fetch(`${API_URL}/settings/global/save`, { method: 'POST', headers: { 'apikey': apiKey } });
+            alert("Configurações Salvas!");
+        };
+        return (
+            <div className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow fade-in">
+                <h3 className="text-lg font-bold mb-4 dark:text-white">Configurações Gerais</h3>
+                <div className="space-y-1">
+                    <Toggle label="Rejeitar Chamadas" checked={config.rejectCalls} onChange={v=>setConfig({...config, rejectCalls:v})} />
+                    <Toggle label="Ignorar Grupos" checked={config.ignoreGroups} onChange={v=>setConfig({...config, ignoreGroups:v})} />
+                    <Toggle label="Sempre Online" checked={config.alwaysOnline} onChange={v=>setConfig({...config, alwaysOnline:v})} />
+                    <Toggle label="Histórico Completo (Sync)" checked={config.syncHistory} onChange={v=>setConfig({...config, syncHistory:v})} />
+                </div>
+                <button onClick={save} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-lg font-bold w-full hover:bg-green-700 transition">Salvar Alterações</button>
+            </div>
+        );
+    };
+
+    const EventsPage = () => (
+        <div className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow fade-in">
+            <h3 className="text-lg font-bold mb-4 text-purple-600"><i className="ph-fill ph-hooks-logo"></i> Webhooks</h3>
+            <div className="mb-4">
+                <label className="text-xs font-bold uppercase text-gray-500 block mb-1">URL de Eventos</label>
+                <input type="text" className="w-full p-3 border rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white" placeholder="https://seu-sistema.com/webhook" />
+            </div>
+            <Toggle label="Ativar WebSocket" checked={true} onChange={()=>{}} />
+            <button className="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg font-bold w-full hover:bg-purple-700 transition">Salvar Webhook</button>
+        </div>
+    );
+
+    const IntegrationsPage = () => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 fade-in">
+            {['Typebot', 'Chatwoot', 'OpenAI', 'n8n', 'Dify', 'Flowise'].map(n => (
+                <div key={n} className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow border border-gray-200 dark:border-gray-700 hover:border-green-500 transition cursor-pointer">
+                    <div className="flex justify-between mb-2"><i className="ph-fill ph-plugs text-2xl text-gray-400"></i><div className="w-3 h-3 bg-red-500 rounded-full"></div></div>
+                    <h4 className="font-bold dark:text-white">{n}</h4>
+                    <p className="text-xs text-gray-500">Clique para configurar</p>
+                </div>
+            ))}
+        </div>
+    );
+
+    const ChatPage = ({ apiKey, instances }) => {
+        const [contacts, setContacts] = useState([]);
+        const [activeChat, setActiveChat] = useState(null);
+        const [filter, setFilter] = useState('all');
+
+        const loadContacts = async (instName) => {
+            if(!instName) return;
+            const res = await fetch(`${API_URL}/chat/${instName}/contacts`, { headers: { 'apikey': apiKey } });
+            const data = await res.json();
+            setContacts(Array.isArray(data) ? data.sort((a,b)=>a.name.localeCompare(b.name)) : []);
         };
 
+        const filtered = contacts.filter(c => filter==='all' ? true : filter==='group' ? c.is_group : !c.is_group);
+
         return (
-            <div className="min-h-screen wa-green flex items-center justify-center relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-32 bg-emerald-600 opacity-20"></div>
-                <div className="bg-white p-10 rounded-lg shadow-2xl w-full max-w-md z-10 fade-in text-center">
-                    <div className="mb-6 flex justify-center">
-                        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center">
-                            <i className="ph-fill ph-whatsapp-logo text-4xl text-emerald-600"></i>
+            <div className="flex h-[calc(100vh-8rem)] bg-white dark:bg-dark-panel rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden fade-in">
+                <div className="w-1/3 border-r dark:border-gray-700 flex flex-col">
+                    <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                        <select onChange={(e) => loadContacts(e.target.value)} className="w-full p-2 mb-3 rounded border dark:bg-gray-700 dark:text-white">
+                            <option value="">Selecione Instância...</option>
+                            {instances.filter(i => i.status === 'connected').map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
+                        </select>
+                        <div className="flex gap-2">
+                            {['all', 'user', 'group'].map(t => (
+                                <button key={t} onClick={()=>setFilter(t)} className={`flex-1 text-xs py-1 rounded capitalize ${filter===t?'bg-green-100 text-green-800 font-bold':'bg-gray-200 dark:bg-gray-700 dark:text-white'}`}>{t}</button>
+                            ))}
                         </div>
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-800 mb-2">NexusWA Admin</h2>
-                    <p className="text-gray-500 mb-8">Ambiente de Produção (WhatsMeow)</p>
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="text-left">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Global API Key</label>
-                            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} className="w-full mt-1 p-3 border border-gray-300 rounded focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition" placeholder="Sua chave secreta" />
-                        </div>
-                        <button type="submit" className="w-full wa-green hover:bg-emerald-700 text-white font-bold py-3 rounded transition shadow-lg">ACESSAR PAINEL</button>
-                    </form>
+                    <div className="flex-1 overflow-y-auto">
+                        {filtered.map(c => (
+                            <div key={c.jid} onClick={()=>setActiveChat(c)} className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 border-b dark:border-gray-800 ${activeChat?.jid===c.jid?'bg-green-50 dark:bg-green-900/20':''}`}>
+                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">{c.is_group?'👥':'👤'}</div>
+                                <div className="flex-1 min-w-0"><h4 className="font-bold text-sm truncate dark:text-white">{c.name}</h4><p className="text-xs text-gray-500 truncate">{c.jid}</p></div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="flex-1 flex flex-col bg-[#efeae2] dark:bg-[#0b141a]">
+                    {activeChat ? (
+                        <>
+                            <div className="p-3 bg-gray-100 dark:bg-gray-800 flex items-center gap-3 border-b dark:border-gray-700"><span className="font-bold dark:text-white">{activeChat.name}</span></div>
+                            <div className="flex-1 p-4"></div>
+                            <div className="p-3 bg-gray-100 dark:bg-gray-800 flex gap-2"><input className="flex-1 p-2 rounded border dark:bg-gray-700 dark:text-white" placeholder="Mensagem..." /><button className="bg-green-600 text-white p-2 rounded-full"><i className="ph-fill ph-paper-plane-right"></i></button></div>
+                        </>
+                    ) : <div className="flex-1 flex items-center justify-center text-gray-400">Selecione um chat</div>}
+                </div>
+            </div>
+        );
+    };
+
+    const InstanceCard = ({ inst, onConnect, onAction, onUpdateInfo }) => {
+        const [loading, setLoading] = useState(false);
+        const [showKey, setShowKey] = useState(false);
+        const handle = async (act) => { setLoading(true); await onAction(act, inst.name); setLoading(false); };
+
+        useEffect(() => { if(inst.status === 'connected' && (!inst.jid || !inst.stats)) onUpdateInfo(inst.name); }, [inst.status]);
+
+        return (
+            <div className="bg-white dark:bg-dark-panel rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 fade-in">
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="relative">
+                        {inst.avatar ? <img src={inst.avatar} className="w-16 h-16 rounded-full border-2 border-gray-100 object-cover" onError={(e)=>{e.target.src='https://via.placeholder.com/150?text=WA'}} /> : <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-3xl">{inst.status==='connected'?'🤖':'🔌'}</div>}
+                        <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${inst.status==='connected'?'bg-green-500':'bg-red-500'}`}></div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-lg dark:text-white truncate">{inst.pushName || inst.name}</h3>
+                        <p className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded mt-1 inline-block truncate max-w-full">{inst.jid ? inst.jid.split('@')[0] : "Desconectado"}</p>
+                    </div>
+                </div>
+
+                {inst.status === 'connected' && (
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded text-center border border-blue-100 dark:border-blue-800"><p className="text-[10px] font-bold text-blue-600">CONTATOS</p><p className="text-lg font-bold text-blue-800 dark:text-blue-300">{inst.stats?.contacts || 0}</p></div>
+                        <div className="bg-purple-50 dark:bg-purple-900/20 p-2 rounded text-center border border-purple-100 dark:border-purple-800"><p className="text-[10px] font-bold text-purple-600">GRUPOS</p><p className="text-lg font-bold text-purple-800 dark:text-purple-300">{inst.stats?.groups || 0}</p></div>
+                    </div>
+                )}
+
+                <div className="bg-gray-50 dark:bg-gray-800/50 p-2 rounded mb-4 border border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <code className="text-xs font-mono text-gray-600 dark:text-gray-300 truncate w-32">{showKey ? inst.apiKey : "••••••••••••"}</code>
+                    <div className="flex gap-2">
+                        <button onClick={()=>setShowKey(!showKey)} className="text-gray-400 hover:text-green-500"><i className={`ph-bold ${showKey?'ph-eye-slash':'ph-eye'}`}></i></button>
+                        <button onClick={()=>{navigator.clipboard.writeText(inst.apiKey); alert("Copiado!");}} className="text-gray-400 hover:text-blue-500"><i className="ph-bold ph-copy"></i></button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2">
+                    {inst.status !== 'connected' ? (
+                        <button onClick={() => onConnect(inst.name)} disabled={loading} className="col-span-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition shadow-sm disabled:opacity-50">{loading ? <i className="ph ph-spinner animate-spin"></i> : <i className="ph-bold ph-qr-code"></i>} Conectar</button>
+                    ) : (
+                        <>
+                            <button onClick={() => handle('refresh')} title="Sincronizar" className="bg-blue-50 hover:bg-blue-100 text-blue-600 py-2 rounded-lg flex justify-center"><i className={`ph-bold ph-arrows-clockwise ${loading?'animate-spin':''}`}></i></button>
+                            <button onClick={() => handle('restart')} title="Reiniciar" className="bg-orange-50 hover:bg-orange-100 text-orange-600 py-2 rounded-lg flex justify-center"><i className="ph-bold ph-lightning"></i></button>
+                            <button onClick={() => handle('logout')} title="Desconectar" className="bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-lg flex justify-center"><i className="ph-bold ph-plug"></i></button>
+                        </>
+                    )}
+                    <button onClick={() => handle('delete')} title="Excluir" className="bg-gray-100 hover:bg-red-500 hover:text-white text-gray-500 py-2 rounded-lg flex justify-center transition"><i className="ph-bold ph-trash"></i></button>
                 </div>
             </div>
         );
     };
 
     const Dashboard = ({ apiKey, onLogout }) => {
-        const [activeTab, setActiveTab] = useState('instances'); 
+        const [activeTab, setActiveTab] = useState('instances');
         const [instances, setInstances] = useState([]);
-        const [loading, setLoading] = useState(false);
-        const [modalQR, setModalQR] = useState(null);
-        const [toast, setToast] = useState(null);
+        const [modals, setModals] = useState({});
+        const [qrData, setQrData] = useState(null);
+        const [pairCode, setPairCode] = useState(null);
+        const [phoneInput, setPhoneInput] = useState("");
+        const [selectedInst, setSelectedInst] = useState(null);
+        const [darkMode, setDarkMode] = useState(false);
 
         useEffect(() => {
-            const saved = localStorage.getItem('nexus_instances');
+            const saved = localStorage.getItem('nexus_instances_v12');
             if (saved) setInstances(JSON.parse(saved));
-        }, []);
+            if(darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark');
+        }, [darkMode]);
 
-        const saveInstances = (newInstances) => {
-            setInstances(newInstances);
-            localStorage.setItem('nexus_instances', JSON.stringify(newInstances));
-        };
-
-        const showToast = (msg, type = 'success') => {
-            setToast({ msg, type });
-        };
+        const saveInstances = (v) => { setInstances(v); localStorage.setItem('nexus_instances_v12', JSON.stringify(v)); };
+        const openModal = (t, i) => { setSelectedInst(i); setModals({...modals, [t]: true}); };
+        const closeModal = (t) => setModals({...modals, [t]: false});
 
         const addInstance = () => {
-            const name = prompt("Nome da nova instância:");
-            if (name) {
-                const newInst = { name, status: 'disconnected', lastActivity: '-' };
-                saveInstances([...instances, newInst]);
-            }
-        };
-
-        const deleteInstance = (name) => {
-            if(confirm('Tem certeza que deseja remover esta instância?')) {
-                saveInstances(instances.filter(i => i.name !== name));
+            const name = document.getElementById('newInstName').value.replace(/\s+/g, '');
+            if(name && !instances.find(i=>i.name===name)) {
+                saveInstances([...instances, {name, apiKey: generateUUID(), status: 'disconnected', stats: {contacts:0, groups:0}}]);
+                closeModal('add');
             }
         };
 
         const connectInstance = async (name) => {
-            setLoading(true);
+            saveInstances(instances.map(i => i.name === name ? {...i, status: 'connecting'} : i));
             try {
-                const res = await fetch(`${API_URL}/instance/${name}/connect`, {
-                    method: 'POST',
-                    headers: { 'apikey': apiKey }
-                });
+                const res = await fetch(`${API_URL}/instance/${name}/connect`, { method: 'POST', headers: { 'apikey': apiKey } });
                 const data = await res.json();
-                
                 if (data.status === 'success') {
-                    if (data.message === "Already connected" || data.message === "Session restored from database") {
-                        const updated = instances.map(i => i.name === name ? {...i, status: 'connected'} : i);
-                        saveInstances(updated);
-                        showToast('Instância conectada automaticamente!');
-                    } else if(data.qrcode) {
-                        const updated = instances.map(i => i.name === name ? {...i, status: 'connecting'} : i);
-                        saveInstances(updated);
-                        setModalQR({ name, code: data.qrcode });
-                        showToast('QR Code gerado! Escaneie agora.');
-                    }
+                    if (data.qrcode) {
+                        setQrData(data.qrcode);
+                        openModal('qr', { name });
+                        const poll = setInterval(async () => {
+                            const iRes = await fetch(`${API_URL}/instance/${name}/info`, { headers: { 'apikey': apiKey } });
+                            const info = await iRes.json();
+                            if(info.status === 'connected') { clearInterval(poll); closeModal('qr'); updateInfo(name); }
+                        }, 2000);
+                    } else updateInfo(name);
                 } else {
-                    showToast(data.message || 'Erro ao conectar', 'error');
+                    alert(data.message);
+                    saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
                 }
-            } catch (err) {
-                showToast('Erro de conexão com o servidor', 'error');
+            } catch(e) {
+                alert("Erro de conexão");
+                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
             }
-            setLoading(false);
         };
 
-        const logoutInstance = async (name) => {
-             setLoading(true);
+        const updateInfo = async (name) => {
             try {
-                const res = await fetch(`${API_URL}/instance/${name}/logout`, {
-                    method: 'POST',
-                    headers: { 'apikey': apiKey }
-                });
+                const res = await fetch(`${API_URL}/instance/${name}/info`, { headers: { 'apikey': apiKey } });
                 const data = await res.json();
-                if (data.status === 'success') {
-                    const updated = instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i);
-                    saveInstances(updated);
-                    showToast('Instância desconectada.');
+                if (data.status === 'connected') {
+                    saveInstances(instances.map(i => i.name === name ? {
+                        ...i, status: 'connected', jid: data.jid, avatar: data.avatar, pushName: data.name, stats: {contacts: data.contacts, groups: data.groups}
+                    } : i));
                 }
-            } catch (err) {
-                showToast('Erro ao desconectar', 'error');
+            } catch(e) {}
+        };
+
+        const handleAction = async (action, name) => {
+            if(action === 'delete') {
+                if(!confirm('Excluir?')) return;
+                await fetch(`${API_URL}/instance/${name}/logout`, { method: 'POST', headers: { 'apikey': apiKey } });
+                saveInstances(instances.filter(i => i.name !== name));
+            } else if(action === 'logout') {
+                if(!confirm('Desconectar?')) return;
+                await fetch(`${API_URL}/instance/${name}/logout`, { method: 'POST', headers: { 'apikey': apiKey } });
+                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
+            } else if(action === 'refresh') updateInfo(name);
+            else if(action === 'restart') {
+                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
+                setTimeout(() => connectInstance(name), 1500);
             }
-            setLoading(false);
         };
 
-        const QRModal = () => {
-            if (!modalQR) return null;
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 fade-in p-4">
-                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center relative">
-                        <div className="absolute top-2 right-2">
-                             <button onClick={() => setModalQR(null)} className="text-gray-400 hover:text-gray-600"><i className="ph ph-x text-xl"></i></button>
-                        </div>
-                        <h3 className="text-xl font-bold mb-2">Escaneie o QR Code</h3>
-                        <p className="text-sm text-gray-500 mb-4">Abra o WhatsApp > Aparelhos Conectados > Conectar</p>
-                        
-                        <div className="border-4 border-emerald-500 p-2 inline-block rounded-lg mb-4 bg-white">
-                            <img src={modalQR.code} alt="QR Code" className="w-60 h-60 object-contain" />
-                        </div>
-                        
-                        <p className="text-xs text-gray-400 mb-4">Instância: <span className="font-bold">{modalQR.name}</span></p>
-                        <button onClick={() => {
-                            // Marca como conectado visualmente ao fechar (assume que o usuário escaneou)
-                            const updated = instances.map(i => i.name === modalQR.name ? {...i, status: 'connected'} : i);
-                            saveInstances(updated);
-                            setModalQR(null);
-                        }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded transition">
-                            Já Escaneiei
-                        </button>
-                    </div>
-                </div>
-            );
+        const handlePairing = async () => {
+            const res = await fetch(`${API_URL}/instance/${selectedInst.name}/pair`, {
+                method: 'POST', headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phoneInput })
+            });
+            const data = await res.json();
+            if(data.code) setPairCode(data.code); else alert(data.error);
         };
 
-        const renderInstances = () => (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div onClick={addInstance} className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center text-gray-400 hover:border-emerald-500 hover:text-emerald-500 cursor-pointer transition h-48 hover:bg-gray-50">
-                    <i className="ph ph-plus-circle text-4xl mb-2"></i>
-                    <span className="font-semibold">Nova Instância</span>
-                </div>
-                {instances.map((inst) => (
-                    <div key={inst.name} className="bg-white rounded-lg shadow p-6 relative border-t-4 border-emerald-500 fade-in">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-800">{inst.name}</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className={`w-2 h-2 rounded-full ${inst.status === 'connected' ? 'bg-green-500' : inst.status === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                                    <span className="text-xs text-gray-500 uppercase font-semibold">
-                                        {inst.status === 'connected' ? 'Online' : inst.status === 'connecting' ? 'Aguardando...' : 'Desconectado'}
-                                    </span>
-                                </div>
-                            </div>
-                            <button onClick={() => deleteInstance(inst.name)} className="text-gray-300 hover:text-red-500 transition"><i className="ph ph-trash text-xl"></i></button>
-                        </div>
-                        <div className="flex gap-2 mt-6">
-                            {inst.status !== 'connected' ? (
-                                <button onClick={() => connectInstance(inst.name)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded text-sm font-semibold flex items-center justify-center gap-2 transition shadow-sm"><i className="ph ph-qr-code"></i> Conectar</button>
-                            ) : (
-                                <button onClick={() => logoutInstance(inst.name)} className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded text-sm font-semibold flex items-center justify-center gap-2 transition"><i className="ph ph-plug"></i> Desconectar</button>
-                            )}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        );
-
-        const renderTester = () => (
-            <div className="bg-white rounded-lg shadow p-8 max-w-2xl mx-auto fade-in">
-                <h3 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="ph ph-paper-plane-tilt text-emerald-600"></i> Testar Envio Real</h3>
-                <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.target);
-                    const inst = formData.get('instance');
-                    const num = formData.get('number');
-                    const txt = formData.get('text');
-                    try {
-                         const res = await fetch(`${API_URL}/message/${inst}/text`, {
-                            method: 'POST',
-                            headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ number: num, text: txt })
-                        });
-                        const d = await res.json();
-                        if(d.status === 'success' || d.messageId) showToast('Mensagem enviada com sucesso!');
-                        else showToast('Erro no envio: ' + JSON.stringify(d), 'error');
-                    } catch(err) {
-                        showToast('Erro de conexão', 'error');
-                    }
-                }}>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label className="block text-sm text-gray-600 mb-1">Instância</label>
-                            <select name="instance" className="w-full border p-2 rounded bg-gray-50 focus:ring-emerald-500 focus:border-emerald-500">{instances.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}</select>
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-600 mb-1">Número (ex: 5511999999999)</label>
-                            <input name="number" type="text" className="w-full border p-2 rounded focus:ring-emerald-500 focus:border-emerald-500" placeholder="55..." required />
-                        </div>
-                    </div>
-                    <div className="mb-4">
-                        <label className="block text-sm text-gray-600 mb-1">Mensagem</label>
-                        <textarea name="text" rows="4" className="w-full border p-2 rounded focus:ring-emerald-500 focus:border-emerald-500" placeholder="Digite sua mensagem..." required></textarea>
-                    </div>
-                    <button type="submit" className="w-full wa-green hover:bg-emerald-700 text-white font-bold py-3 rounded transition shadow-lg">ENVIAR MENSAGEM</button>
-                </form>
-            </div>
-        );
-
-        const renderSettings = () => (
-            <div className="max-w-2xl mx-auto space-y-6 fade-in">
-                <div className="bg-white rounded-lg shadow p-6">
-                    <h3 className="text-lg font-bold mb-4 text-gray-800">Status do Sistema</h3>
-                    <div className="text-sm text-gray-600 space-y-2">
-                        <p><strong>Versão Backend:</strong> Go Fiber v1.22</p>
-                        <p><strong>Motor WhatsApp:</strong> <span className="text-emerald-600 font-bold">WhatsMeow (Produção)</span></p>
-                        <p><strong>Banco de Dados:</strong> SQLite3</p>
-                    </div>
-                </div>
-            </div>
-        );
+        const totalContacts = instances.reduce((acc, curr) => acc + (curr.stats?.contacts || 0), 0);
+        const totalGroups = instances.reduce((acc, curr) => acc + (curr.stats?.groups || 0), 0);
+        const onlineCount = instances.filter(i => i.status === 'connected').length;
 
         return (
-            <div className="min-h-screen flex bg-gray-100">
-                {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-                {modalQR && <QRModal />}
-                <div className="w-64 wa-sidebar border-r border-gray-200 flex flex-col hidden md:flex">
-                    <div className="p-6 flex items-center gap-3 border-b border-gray-100"><i className="ph-fill ph-whatsapp-logo text-3xl text-emerald-600"></i><span className="font-bold text-xl text-gray-800">NexusWA</span></div>
-                    <nav className="flex-1 p-4 space-y-2">
-                        <button onClick={() => setActiveTab('instances')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'instances' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-squares-four text-xl"></i> Dashboard</button>
-                        <button onClick={() => setActiveTab('test')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'test' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-lightning text-xl"></i> Testar API</button>
-                        <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${activeTab === 'settings' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}><i className="ph ph-gear text-xl"></i> Configurações</button>
+            <div className="flex h-screen overflow-hidden font-sans bg-gray-50 dark:bg-[#0c1317]">
+                {/* Modais */}
+                <Modal isOpen={modals.add} title="Nova Instância" onClose={() => closeModal('add')}>
+                    <input id="newInstName" type="text" className="w-full p-3 border rounded mb-4" placeholder="Nome" />
+                    <button onClick={addInstance} className="w-full bg-green-600 text-white py-2 rounded font-bold">Criar</button>
+                </Modal>
+                <Modal isOpen={modals.qr} title="Escanear QR" onClose={() => closeModal('qr')}>
+                    <div className="flex justify-center mb-4"><img src={qrData} className="w-64 border-4 border-white shadow" /></div>
+                    <div className="text-center"><button onClick={() => { closeModal('qr'); openModal('pair', selectedInst); }} className="text-blue-500 font-bold hover:underline">Usar Código</button></div>
+                </Modal>
+                <Modal isOpen={modals.pair} title="Parear" onClose={() => closeModal('pair')}>
+                    {!pairCode ? <><input value={phoneInput} onChange={e=>setPhoneInput(e.target.value)} className="w-full p-3 border rounded mb-4" placeholder="5511..." /><button onClick={handlePairing} className="w-full bg-green-600 text-white py-2 rounded font-bold">Gerar</button></> : <div className="text-center text-3xl font-mono font-bold p-4 bg-gray-100 rounded">{pairCode}</div>}
+                </Modal>
+
+                {/* Sidebar */}
+                <div className="w-72 bg-white dark:bg-dark-panel border-r border-gray-200 dark:border-gray-800 flex flex-col z-10">
+                    <div className="p-6 flex items-center gap-3"><div className="w-10 h-10 bg-green-600 rounded flex items-center justify-center text-white"><i className="ph-bold ph-whatsapp-logo text-2xl"></i></div><span className="font-bold text-xl dark:text-white">NexusWA</span></div>
+                    <nav className="p-4 space-y-2 flex-1">
+                        {['instances', 'chat', 'settings', 'events', 'integrations'].map(tab => (
+                            <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg capitalize ${activeTab===tab?'bg-green-50 text-green-700 font-bold':'text-gray-500 hover:bg-gray-100'}`}><i className={`ph-bold ${tab==='instances'?'ph-squares-four':tab==='chat'?'ph-chat-circle-text':tab==='settings'?'ph-gear':tab==='events'?'ph-broadcast':'ph-plugs'} text-lg`}></i> {tab}</button>
+                        ))}
                     </nav>
-                    <div className="p-4 border-t border-gray-100"><button onClick={onLogout} className="w-full flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-3 rounded-lg transition"><i className="ph ph-sign-out text-xl"></i> Sair</button></div>
+                    <div className="p-4 border-t dark:border-gray-800"><div className="flex justify-between mb-4"><span className="dark:text-gray-300 text-sm">Modo Escuro</span><button onClick={() => setDarkMode(!darkMode)} className={`w-10 h-5 rounded-full relative transition ${darkMode ? 'bg-green-600' : 'bg-gray-300'}`}><div className={`w-3 h-3 bg-white rounded absolute top-1 ${darkMode?'left-6':'left-1'}`}></div></button></div><button onClick={onLogout} className="w-full text-red-500 font-bold text-sm">Sair</button></div>
                 </div>
-                <div className="flex-1 flex flex-col h-screen overflow-hidden">
-                    <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm">
-                        <h2 className="text-xl font-bold text-gray-800 capitalize">{activeTab === 'instances' ? 'Gerenciador de Instâncias' : activeTab === 'test' ? 'Laboratório de Testes' : 'Configurações'}</h2>
-                        <div className="flex items-center gap-4"><div className="text-right hidden sm:block"><p className="text-sm font-bold text-gray-800">Super Admin</p><p className="text-xs text-green-600">● Online</p></div><div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500"><i className="ph-fill ph-user"></i></div></div>
-                    </header>
-                    <main className="flex-1 overflow-y-auto p-6">{activeTab === 'instances' && renderInstances()}{activeTab === 'test' && renderTester()}{activeTab === 'settings' && renderSettings()}</main>
+
+                <div className="flex-1 overflow-y-auto p-8">
+                    <div className="max-w-7xl mx-auto pb-10">
+                        {activeTab === 'instances' && (
+                            <div className="fade-in space-y-8">
+                                {/* STATS */}
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-whatsapp-logo"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Instâncias</p><h3 className="text-2xl font-bold dark:text-white">{instances.length} ({onlineCount} on)</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-users"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Contatos</p><h3 className="text-2xl font-bold dark:text-white">{totalContacts}</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-chats-circle"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Grupos</p><h3 className="text-2xl font-bold dark:text-white">{totalGroups}</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-envelope-open"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Mensagens</p><h3 className="text-2xl font-bold dark:text-white">---</h3></div></div>
+                                </div>
+                                {/* GRID */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    <div onClick={() => openModal('add')} className="bg-white dark:bg-dark-panel border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 cursor-pointer transition h-full min-h-[16rem]"><i className="ph-bold ph-plus text-3xl"></i><span className="mt-2 font-bold">Nova Instância</span></div>
+                                    {instances.map(inst => <InstanceCard key={inst.name} inst={inst} onConnect={connectInstance} onAction={handleAction} onUpdateInfo={updateInfo} />)}
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'chat' && <ChatPage apiKey={apiKey} instances={instances} />}
+                        {activeTab === 'settings' && <SettingsPage apiKey={apiKey} />}
+                        {activeTab === 'events' && <EventsPage />}
+                        {activeTab === 'integrations' && <IntegrationsPage />}
+                    </div>
                 </div>
             </div>
         );
+    };
+
+    const LoginScreen = ({ onLogin }) => {
+        const [key, setKey] = useState('');
+        return (<div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-[#0c1317]"><div className="bg-white dark:bg-dark-panel p-8 rounded-lg shadow-lg w-full max-w-md text-center"><h2 className="text-2xl font-bold mb-6 dark:text-white">NexusWA</h2><input type="password" onChange={e=>setKey(e.target.value)} className="w-full p-3 border rounded mb-4" placeholder="Chave de Acesso" /><button onClick={()=>onLogin(key)} className="w-full bg-green-600 text-white py-3 rounded font-bold">Entrar</button></div></div>);
     };
 
     const App = () => {
         const [auth, setAuth] = useState(false);
         const [apiKey, setApiKey] = useState('');
-        useEffect(() => {
-            const savedKey = localStorage.getItem('nexus_apikey');
-            if(savedKey) { setApiKey(savedKey); setAuth(true); }
-        }, []);
-        const handleLogin = (key) => { setApiKey(key); localStorage.setItem('nexus_apikey', key); setAuth(true); };
-        const handleLogout = () => { localStorage.removeItem('nexus_apikey'); setAuth(false); setApiKey(''); };
-        return (<React.Fragment>{auth ? <Dashboard apiKey={apiKey} onLogout={handleLogout} /> : <LoginScreen onLogin={handleLogin} />}</React.Fragment>);
+        useEffect(() => { const s = localStorage.getItem('nexus_apikey'); if(s) { setApiKey(s); setAuth(true); } }, []);
+        return <>{auth ? <Dashboard apiKey={apiKey} onLogout={() => {localStorage.removeItem('nexus_apikey'); setAuth(false);}} /> : <LoginScreen onLogin={(k) => {setApiKey(k); localStorage.setItem('nexus_apikey', k); setAuth(true);}} />}</>;
     };
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
 </html>
