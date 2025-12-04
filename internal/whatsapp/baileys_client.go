@@ -101,6 +101,11 @@ func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 	deviceStore.Platform = "NexusWA-API"
 	deviceStore.BusinessName = "NexusWA Enterprise"
 
+	err = deviceStore.Save(context.Background())
+if err != nil {
+    log.Printf("[%s] ⚠️ Erro ao salvar device store: %v", instanceKey, err)
+}
+
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	
@@ -418,12 +423,27 @@ func (c *BaileysClient) PairPhone(instanceKey string, phone string) (string, err
 	if !ok {
 		return "", errors.New("instância offline")
 	}
+
 	if client.IsLoggedIn() {
 		return "", errors.New("já logado")
 	}
-	
-	return client.PairPhone(context.Background(), phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+
+	// 📌 Aqui faz o pareamento com nome customizado que aparecerá no WhatsApp do usuário
+	code, err := client.PairPhone(
+		context.Background(),
+		phone,
+		true,
+		whatsmeow.PairClientChrome,
+		"NexusWA-API Enterprise", // <- Nome exibido no celular
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	return code, nil
 }
+
 
 // --- LOGOUT ---
 

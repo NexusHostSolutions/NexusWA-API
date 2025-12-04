@@ -1370,6 +1370,55 @@
             else document.documentElement.classList.remove('dark');
         }, [darkMode]);
 
+        useEffect(() => {
+    if(instances.length === 0) return;
+    
+    const checkConnectionStatus = async () => {
+        const connectedInstances = instances.filter(i => i.status === 'connected');
+        
+        for(const inst of connectedInstances) {
+            try {
+                const res = await fetch(`${API_URL}/instance/${inst.name}/info`, { 
+                    headers: { 'apikey': apiKey } 
+                });
+                
+                if(!res.ok) {
+                    // Erro HTTP, marca como offline
+                    setInstances(prev => prev.map(i => 
+                        i.name === inst.name ? {...i, status: 'disconnected', jid: null, avatar: null} : i
+                    ));
+                    NotificationManager.show(`⚠️ ${inst.name} foi desconectado!`, "error");
+                    continue;
+                }
+                
+                const data = await res.json();
+                
+                // Se retornar erro ou disconnected, atualiza
+                if(data.status === 'disconnected' || data.error) {
+                    setInstances(prev => prev.map(i => 
+                        i.name === inst.name ? {...i, status: 'disconnected', jid: null, avatar: null} : i
+                    ));
+                    NotificationManager.show(`⚠️ ${inst.name} foi desconectado!`, "error");
+                }
+            } catch(e) {
+                // Se der erro na requisição, marca como offline
+                console.error(`Erro ao verificar ${inst.name}:`, e);
+                setInstances(prev => prev.map(i => 
+                    i.name === inst.name ? {...i, status: 'disconnected'} : i
+                ));
+            }
+        }
+    };
+
+    // Primeira verificação imediata
+    checkConnectionStatus();
+    
+    // Verifica a cada 10 segundos
+    const interval = setInterval(checkConnectionStatus, 10000);
+    
+    return () => clearInterval(interval);
+}, [apiKey]); // ✅ REMOVIDO 'instances' das dependências!
+
         const saveInstances = (v) => { 
             setInstances(v); 
             localStorage.setItem('nexus_instances_v13', JSON.stringify(v)); 
@@ -1441,30 +1490,41 @@
         };
 
         const updateInfo = async (name) => {
-            try {
-                const res = await fetch(`${API_URL}/instance/${name}/info`, { 
-                    headers: { 'apikey': apiKey } 
-                });
-                const data = await res.json();
-                
-                if (data.status === 'connected') {
-                    saveInstances(instances.map(i => i.name === name ? {
-                        ...i, 
-                        status: 'connected', 
-                        jid: data.jid, 
-                        avatar: data.avatar, 
-                        pushName: data.name, 
-                        stats: {
-                            contacts: data.contacts, 
-                            groups: data.groups,
-                            messagesSent: data.messagesSent || 0
-                        }
-                    } : i));
+    try {
+        const res = await fetch(`${API_URL}/instance/${name}/info`, { 
+            headers: { 'apikey': apiKey }  // ✅ ADICIONE ESTA LINHA
+        });
+        const data = await res.json();
+        
+        if (data.status === 'connected') {
+            saveInstances(instances.map(i => i.name === name ? {
+                ...i, 
+                status: 'connected', 
+                jid: data.jid, 
+                avatar: data.avatar, 
+                pushName: data.name, 
+                stats: {
+                    contacts: data.contacts, 
+                    groups: data.groups,
+                    messagesSent: data.messagesSent || 0
                 }
-            } catch(e) {
-                console.error("Erro ao atualizar info:", e);
-            }
-        };
+            } : i));
+        } else {
+            // ✅ ADICIONE: Se não conectado, marca como disconnected
+            saveInstances(instances.map(i => i.name === name ? {
+                ...i,
+                status: 'disconnected'
+            } : i));
+        }
+    } catch(e) {
+        console.error("Erro ao atualizar info:", e);
+        // ✅ ADICIONE: Em caso de erro, marca como disconnected
+        saveInstances(instances.map(i => i.name === name ? {
+            ...i,
+            status: 'disconnected'
+        } : i));
+    }
+};
 
         const handleAction = async (action, name) => {
             if(action === 'delete') {
