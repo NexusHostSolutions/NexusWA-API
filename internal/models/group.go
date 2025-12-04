@@ -2,14 +2,14 @@ package models
 
 type CreateGroupRequest struct {
 	Subject      string   `json:"subject"`
-	Participants []string `json:"participants"` // Array de números
+	Participants []string `json:"participants"`
 	Description  string   `json:"description,omitempty"`
 }
 
 type GroupActionRequest struct {
 	GroupID      string   `json:"group_id"`
 	Participants []string `json:"participants,omitempty"`
-	Action       string   `json:"action"` // add, remove, promote, demote
+	Action       string   `json:"action"`
 }
 
 type GroupInfo struct {

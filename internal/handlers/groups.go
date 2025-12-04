@@ -39,10 +39,9 @@ func (h *GroupHandler) UpdateParticipants(c *fiber.Ctx) error {
 	}
 	req.GroupID = groupID
 
-	// Ação vem da URL ou Body? Vamos assumir URL query action?add
-	action := c.Query("action") // add, remove, promote, demote
+	action := c.Query("action")
 	if action == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "action query param required"})
+		return c.Status(400).JSON(fiber.Map{"error": "action required"})
 	}
 
 	err := h.Service.ManageGroup(instanceKey, action, req)

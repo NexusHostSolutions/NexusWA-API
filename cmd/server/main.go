@@ -8,13 +8,14 @@ import (
 )
 
 func main() {
-	// Carregar Configurações
 	cfg := config.LoadConfig()
 
-	// Iniciar Servidor
 	app := server.NewServer(cfg)
 
-	log.Printf("🔥 NexusWA Iniciando na porta %s...", cfg.ServerPort)
+	log.Printf("🚀 NexusWA API Enterprise rodando na porta %s", cfg.ServerPort)
+	log.Printf("🔑 API Key: %s", cfg.GlobalApiKey)
+	log.Printf("📡 Dashboard: http://localhost:%s", cfg.ServerPort)
+
 	if err := app.Listen(":" + cfg.ServerPort); err != nil {
 		log.Fatal(err)
 	}

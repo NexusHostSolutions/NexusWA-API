@@ -1,21 +1,19 @@
 package models
 
-// Configurações Gerais da Instância
 type InstanceSettings struct {
-	RejectCalls   bool `json:"reject_calls"`
-	IgnoreGroups  bool `json:"ignore_groups"`
-	AlwaysOnline  bool `json:"always_online"`
-	ReadMessages  bool `json:"read_messages"`
-	SyncHistory   bool `json:"sync_history"`
-	ReadStatus    bool `json:"read_status"`
+	RejectCalls  bool `json:"reject_calls"`
+	IgnoreGroups bool `json:"ignore_groups"`
+	AlwaysOnline bool `json:"always_online"`
+	ReadMessages bool `json:"read_messages"`
+	SyncHistory  bool `json:"sync_history"`
+	ReadStatus   bool `json:"read_status"`
 }
 
-// Configurações de Eventos (Webhooks, RabbitMQ, etc)
 type EventsConfig struct {
-	Webhook  WebhookConfig  `json:"webhook"`
-	RabbitMQ RabbitMQConfig `json:"rabbitmq"`
-	SQS      SQSConfig      `json:"sqs"`
-	WebSocket bool          `json:"websocket_enabled"`
+	Webhook   WebhookConfig  `json:"webhook"`
+	RabbitMQ  RabbitMQConfig `json:"rabbitmq"`
+	SQS       SQSConfig      `json:"sqs"`
+	WebSocket bool           `json:"websocket_enabled"`
 }
 
 type WebhookConfig struct {
@@ -36,13 +34,11 @@ type SQSConfig struct {
 	SecretKey string `json:"secret_key"`
 }
 
-// Configurações de Integrações (Typebot, Chatwoot, etc)
 type IntegrationsConfig struct {
 	Typebot  TypebotConfig  `json:"typebot"`
 	Chatwoot ChatwootConfig `json:"chatwoot"`
 	OpenAI   OpenAIConfig   `json:"openai"`
 	Dify     DifyConfig     `json:"dify"`
-	// Adicione outros conforme necessário
 }
 
 type TypebotConfig struct {
@@ -61,7 +57,7 @@ type ChatwootConfig struct {
 type OpenAIConfig struct {
 	Enabled bool   `json:"enabled"`
 	ApiKey  string `json:"api_key"`
-	Model   string `json:"model"` // gpt-4, gpt-3.5-turbo
+	Model   string `json:"model"`
 }
 
 type DifyConfig struct {

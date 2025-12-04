@@ -41,9 +41,19 @@ func (s *Service) GetInstanceInfo(instanceKey string) (map[string]interface{}, e
 	return s.Client.GetConnectionInfo(instanceKey)
 }
 
-// NOVA: Buscar Contatos para o Chat
+// Buscar Contatos para o Chat
 func (s *Service) GetContacts(instanceKey string) ([]map[string]interface{}, error) {
 	return s.Client.GetContacts(instanceKey)
+}
+
+// NOVA: Buscar Grupos
+func (s *Service) GetGroups(instanceKey string) ([]map[string]interface{}, error) {
+	return s.Client.GetGroups(instanceKey)
+}
+
+// NOVA: Buscar contatos por nome/número
+func (s *Service) SearchContacts(instanceKey, query string) ([]map[string]interface{}, error) {
+	return s.Client.SearchContacts(instanceKey, query)
 }
 
 func (s *Service) PairPhone(instanceKey, phone string) (string, error) {
@@ -54,9 +64,16 @@ func (s *Service) CheckAntiLink(instanceKey, groupID, sender, messageContent str
 	linkRegex := regexp.MustCompile(`(http|https):\/\/[^\s]+`)
 	return linkRegex.MatchString(messageContent)
 }
+
 func (s *Service) ManageGroup(instanceKey string, action string, req models.GroupActionRequest) error {
 	return s.Client.GroupAction(instanceKey, req.GroupID, req.Participants, action)
 }
+
 func (s *Service) CreateGroup(instanceKey string, req models.CreateGroupRequest) (string, error) {
 	return s.Client.CreateGroup(instanceKey, req.Subject, req.Participants)
+}
+
+// NOVA: Obter EventBus para webhooks
+func (s *Service) GetEventBus() *EventBus {
+	return s.Client.EventBus
 }

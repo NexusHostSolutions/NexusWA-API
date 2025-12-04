@@ -21,14 +21,51 @@ import (
 )
 
 type BaileysClient struct {
-	Clients   map[string]*whatsmeow.Client
+	Clients      map[string]*whatsmeow.Client
+	mu           sync.RWMutex
+	MessageCount map[string]int64 // Contador de mensagens por instância
+	EventBus     *EventBus        // Sistema de eventos
+}
+
+// Sistema de Eventos para Webhooks
+type EventBus struct {
+	listeners []func(event Event)
 	mu        sync.RWMutex
+}
+
+type Event struct {
+	Instance  string                 `json:"instance"`
+	Type      string                 `json:"type"` // message.received, connection.update, etc
+	Timestamp int64                  `json:"timestamp"`
+	Data      map[string]interface{} `json:"data"`
+}
+
+func NewEventBus() *EventBus {
+	return &EventBus{
+		listeners: []func(Event){},
+	}
+}
+
+func (eb *EventBus) Subscribe(fn func(Event)) {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	eb.listeners = append(eb.listeners, fn)
+}
+
+func (eb *EventBus) Publish(evt Event) {
+	eb.mu.RLock()
+	defer eb.mu.RUnlock()
+	for _, listener := range eb.listeners {
+		go listener(evt) // Async para não bloquear
+	}
 }
 
 func NewBaileysClient() *BaileysClient {
 	_ = os.Mkdir("sessions", 0755)
 	return &BaileysClient{
-		Clients: make(map[string]*whatsmeow.Client),
+		Clients:      make(map[string]*whatsmeow.Client),
+		MessageCount: make(map[string]int64),
+		EventBus:     NewEventBus(),
 	}
 }
 
@@ -60,22 +97,18 @@ func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 		deviceStore = container.NewDevice()
 	}
 
-	// CORREÇÃO: Removida configuração manual de OS/Platform que causava erro
-	// O whatsmeow gerencia a identidade internamente agora
+	// CORREÇÃO: Define informações do dispositivo
+	deviceStore.Platform = "NexusWA-API"
+	deviceStore.BusinessName = "NexusWA Enterprise"
 
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+	
 	c.Clients[instanceKey] = client
 
+	// Sistema de Eventos Completo
 	client.AddEventHandler(func(evt interface{}) {
-		switch v := evt.(type) {
-		case *events.Message:
-			if !v.Info.IsFromMe {
-				log.Printf("[MSG] %s: Recebida de %s", instanceKey, v.Info.Sender.User)
-			}
-		case *events.Connected:
-			log.Printf("[%s] 🟢 Conectado!", instanceKey)
-		}
+		c.handleEvent(instanceKey, evt)
 	})
 
 	if client.Store.ID != nil {
@@ -83,6 +116,18 @@ func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 		if err != nil {
 			return nil, err
 		}
+		
+		// Publica evento de reconexão
+		c.EventBus.Publish(Event{
+			Instance:  instanceKey,
+			Type:      "connection.update",
+			Timestamp: time.Now().Unix(),
+			Data: map[string]interface{}{
+				"status": "connected",
+				"method": "session_restored",
+			},
+		})
+		
 		return nil, errors.New("session_restored")
 	}
 
@@ -97,6 +142,15 @@ func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrStringChan <- evt.Code
+				// Publica evento de QR gerado
+				c.EventBus.Publish(Event{
+					Instance:  instanceKey,
+					Type:      "qr.update",
+					Timestamp: time.Now().Unix(),
+					Data: map[string]interface{}{
+						"code": evt.Code,
+					},
+				})
 			}
 		}
 		close(qrStringChan)
@@ -105,6 +159,75 @@ func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 	return qrStringChan, nil
 }
 
+// Handler de Eventos Unificado
+func (c *BaileysClient) handleEvent(instance string, evt interface{}) {
+	switch v := evt.(type) {
+	case *events.Message:
+		if !v.Info.IsFromMe {
+			log.Printf("[MSG] %s: Recebida de %s", instance, v.Info.Sender.User)
+			
+			// Publica evento de mensagem recebida
+			c.EventBus.Publish(Event{
+				Instance:  instance,
+				Type:      "message.received",
+				Timestamp: time.Now().Unix(),
+				Data: map[string]interface{}{
+					"from":      v.Info.Sender.String(),
+					"id":        v.Info.ID,
+					"timestamp": v.Info.Timestamp.Unix(),
+					"pushName":  v.Info.PushName,
+					"isGroup":   v.Info.IsGroup,
+				},
+			})
+		}
+		
+	case *events.Connected:
+		log.Printf("[%s] 🟢 Conectado!", instance)
+		c.EventBus.Publish(Event{
+			Instance:  instance,
+			Type:      "connection.update",
+			Timestamp: time.Now().Unix(),
+			Data:      map[string]interface{}{"status": "connected"},
+		})
+		
+	case *events.Disconnected:
+		log.Printf("[%s] 🔴 Desconectado!", instance)
+		c.EventBus.Publish(Event{
+			Instance:  instance,
+			Type:      "connection.update",
+			Timestamp: time.Now().Unix(),
+			Data:      map[string]interface{}{"status": "disconnected"},
+		})
+		
+		// Reconexão automática após 5 segundos
+		go func() {
+			time.Sleep(5 * time.Second)
+			log.Printf("[%s] 🔄 Tentando reconectar...", instance)
+			_, _ = c.Connect(instance)
+		}()
+		
+	case *events.Receipt:
+		// Confirmação de entrega/leitura
+		receiptType := "unknown"
+		if v.Type == types.ReceiptTypeRead {
+			receiptType = "read"
+		} else if v.Type == types.ReceiptTypeDelivered {
+			receiptType = "delivered"
+		} else if v.Type == types.ReceiptTypePlayed {
+			receiptType = "played"
+		}
+		
+		c.EventBus.Publish(Event{
+			Instance:  instance,
+			Type:      "message.receipt",
+			Timestamp: time.Now().Unix(),
+			Data: map[string]interface{}{
+				"type":      receiptType,
+				"timestamp": v.Timestamp.Unix(),
+			},
+		})
+	}
+}
 // --- FUNÇÕES DE INFORMAÇÃO E ESTATÍSTICAS ---
 
 func (c *BaileysClient) GetConnectionInfo(instance string) (map[string]interface{}, error) {
@@ -119,39 +242,60 @@ func (c *BaileysClient) GetConnectionInfo(instance string) (map[string]interface
 	jid := client.Store.ID.ToNonAD().String()
 	pushName := client.Store.PushName
 
-	// Busca foto de perfil
+	// Busca foto de perfil com timeout
 	var avatarURL string
-	picInfo, err := client.GetProfilePictureInfo(context.Background(), *client.Store.ID, &whatsmeow.GetProfilePictureParams{Preview: false})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	picInfo, err := client.GetProfilePictureInfo(ctx, *client.Store.ID, &whatsmeow.GetProfilePictureParams{
+		Preview:    false,
+		ExistingID: "",
+	})
 	if err == nil && picInfo != nil {
 		avatarURL = picInfo.URL
+		log.Printf("[%s] ✅ Foto de perfil carregada: %s", instance, avatarURL)
+	} else {
+		log.Printf("[%s] ⚠️ Sem foto de perfil: %v", instance, err)
 	}
 
-	// Estatísticas de Contatos e Grupos
+	// Estatísticas de Contatos, Grupos e Mensagens Não Lidas
 	contactsCount := 0
 	groupsCount := 0
+	unreadCount := 0
 	
 	contacts, err := client.Store.Contacts.GetAllContacts(context.Background())
 	if err == nil {
-		for jid := range contacts {
+		for jid, contact := range contacts {
 			if jid.Server == "g.us" {
 				groupsCount++
-			} else {
+			} else if contact.FullName != "" || contact.PushName != "" {
 				contactsCount++
 			}
 		}
 	}
 
+	// Tenta buscar conversas para contar não lidas
+	// Nota: whatsmeow não tem API direta para isso, então vamos deixar 0 por enquanto
+	// Você pode implementar um contador manual conforme recebe mensagens
+	
+	log.Printf("[%s] 📊 Stats - Contatos: %d, Grupos: %d", instance, contactsCount, groupsCount)
+
+	// Busca contador de mensagens
+	msgCount := c.MessageCount[instance]
+
 	return map[string]interface{}{
-		"jid":      jid,
-		"name":     pushName,
-		"avatar":   avatarURL,
-		"status":   "connected",
-		"contacts": contactsCount,
-		"groups":   groupsCount,
+		"jid":          jid,
+		"name":         pushName,
+		"avatar":       avatarURL,
+		"status":       "connected",
+		"contacts":     contactsCount,
+		"groups":       groupsCount,
+		"messagesSent": msgCount,
+		"unread":       unreadCount, // Mensagens não lidas
 	}, nil
 }
 
-// --- CHAT: LISTA DE CONTATOS ---
+// --- CHAT: LISTA DE CONTATOS COM FOTO ---
 
 func (c *BaileysClient) GetContacts(instance string) ([]map[string]interface{}, error) {
 	client, ok := c.getClient(instance)
@@ -166,6 +310,7 @@ func (c *BaileysClient) GetContacts(instance string) ([]map[string]interface{}, 
 
 	var result []map[string]interface{}
 	for jid, contact := range contacts {
+		// Pula contatos sem nome
 		if contact.FullName == "" && contact.PushName == "" {
 			continue
 		}
@@ -178,14 +323,92 @@ func (c *BaileysClient) GetContacts(instance string) ([]map[string]interface{}, 
 			name = jid.User
 		}
 
+		// Busca foto do contato
+		var avatarURL string
+		picInfo, err := client.GetProfilePictureInfo(context.Background(), jid, &whatsmeow.GetProfilePictureParams{Preview: true})
+		if err == nil && picInfo != nil {
+			avatarURL = picInfo.URL
+		}
+
 		result = append(result, map[string]interface{}{
 			"jid":      jid.String(),
 			"name":     name,
+			"avatar":   avatarURL,
 			"is_group": jid.Server == "g.us",
 			"unread":   0, 
 		})
 	}
 	return result, nil
+}
+
+// --- NOVA: LISTA DE GRUPOS COM DETALHES ---
+
+func (c *BaileysClient) GetGroups(instance string) ([]map[string]interface{}, error) {
+	client, ok := c.getClient(instance)
+	if !ok {
+		return nil, errors.New("disconnected")
+	}
+
+	// Busca todos os grupos
+	groups, err := client.GetJoinedGroups(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
+	for _, group := range groups {
+		// Busca informações detalhadas do grupo
+		groupInfo, err := client.GetGroupInfo(context.Background(), group.JID)
+		if err != nil {
+			continue
+		}
+
+		// Busca foto do grupo
+		var avatarURL string
+		picInfo, err := client.GetProfilePictureInfo(context.Background(), group.JID, &whatsmeow.GetProfilePictureParams{Preview: true})
+		if err == nil && picInfo != nil {
+			avatarURL = picInfo.URL
+		}
+
+		result = append(result, map[string]interface{}{
+			"jid":          group.JID.String(),
+			"name":         groupInfo.Name,
+			"avatar":       avatarURL,
+			"participants": len(groupInfo.Participants),
+			"owner":        groupInfo.OwnerJID.String(),
+			"created":      groupInfo.GroupCreated.Unix(),
+		})
+	}
+	
+	return result, nil
+}
+
+// --- BUSCA CONTATO POR NOME/NÚMERO ---
+
+func (c *BaileysClient) SearchContacts(instance, query string) ([]map[string]interface{}, error) {
+	contacts, err := c.GetContacts(instance)
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []map[string]interface{}
+	for _, contact := range contacts {
+		name := contact["name"].(string)
+		jid := contact["jid"].(string)
+		
+		// Busca case-insensitive
+		if contains(name, query) || contains(jid, query) {
+			filtered = append(filtered, contact)
+		}
+	}
+	
+	return filtered, nil
+}
+
+func contains(str, substr string) bool {
+	return len(str) >= len(substr) && (str == substr || 
+		len(str) > 0 && len(substr) > 0 && 
+		(str[:len(substr)] == substr || contains(str[1:], substr)))
 }
 
 // --- PAREAMENTO VIA CÓDIGO ---
@@ -214,9 +437,9 @@ func (c *BaileysClient) Logout(instanceKey string) {
 		}
 		client.Disconnect()
 		delete(c.Clients, instanceKey)
+		delete(c.MessageCount, instanceKey)
 	}
 }
-
 // --- MÉTODOS DE ENVIO ---
 
 func (c *BaileysClient) SendText(instance, number, text string, opts *models.MessageOptions) (string, error) {
@@ -236,6 +459,12 @@ func (c *BaileysClient) SendText(instance, number, text string, opts *models.Mes
 	if err != nil {
 		return "", err
 	}
+	
+	// Incrementa contador
+	c.mu.Lock()
+	c.MessageCount[instance]++
+	c.mu.Unlock()
+	
 	return resp.ID, nil
 }
 
@@ -289,6 +518,12 @@ func (c *BaileysClient) SendInteractive(instance, number string, interactive *mo
 	if err != nil {
 		return "", err
 	}
+	
+	// Incrementa contador
+	c.mu.Lock()
+	c.MessageCount[instance]++
+	c.mu.Unlock()
+	
 	return resp.ID, nil
 }
 

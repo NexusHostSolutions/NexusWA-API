@@ -31,7 +31,6 @@ func (h *MessageHandler) SendText(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"status": "success", "messageId": msgID})
 }
 
-// SendInteractive lida com Botões e Listas (Formato 2025)
 func (h *MessageHandler) SendInteractive(c *fiber.Ctx) error {
 	instanceKey := c.Params("instance")
 	var req models.SendMessageRequest
@@ -41,7 +40,6 @@ func (h *MessageHandler) SendInteractive(c *fiber.Ctx) error {
 	}
 	req.Type = "interactive"
 
-	// Validação básica
 	if req.Interactive == nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Interactive payload required"})
 	}
