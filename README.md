@@ -1,99 +1,197 @@
-<p align="center"> <img src="https://via.placeholder.com/900x200/020617/0ea5e9?text=NexusWA+API" style="border-radius:10px" /> </p> <h1 align="center">⚡ NexusWA-API</h1> <p align="center">API WhatsApp multi-instância para integrações, automação, atendimentos e sistemas de comunicação.</p> <p align="center"> <img src="https://img.shields.io/badge/Status-Ativo-brightgreen?style=for-the-badge"> <img src="https://img.shields.io/badge/Framework-Node.js-black?style=for-the-badge&logo=node.js"> <img src="https://img.shields.io/badge/Backend-Go-blue?style=for-the-badge&logo=go"> <img src="https://img.shields.io/badge/API-REST%20JSON-orange?style=for-the-badge"> </p>
-📌 Sobre o Projeto
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>NexusWA-API Documentation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-O NexusWA-API é uma API de comunicação automatizada para WhatsApp com:
+<style>
+    body{
+        font-family: Arial, sans-serif;
+        background:#0d1117;
+        color:#e6edf3;
+        margin:0;
+        padding:0;
+        line-height:1.6;
+    }
+    header{
+        background:#00a884;
+        color:#fff;
+        padding:30px;
+        text-align:center;
+        font-size:32px;
+        font-weight:bold;
+        letter-spacing:2px;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        gap:15px;
+    }
+    header img{
+        width:60px;
+        filter:drop-shadow(0px 0px 6px #00000060);
+    }
+    .container{
+        max-width:900px;
+        margin:auto;
+        padding:25px;
+    }
+    h2{
+        color:#00a884;
+        border-left:5px solid #00a884;
+        padding-left:10px;
+        margin-top:35px;
+    }
+    code, pre{
+        background:#161b22;
+        color:#00ff9d;
+        padding:10px;
+        display:block;
+        border-radius:6px;
+        overflow-x:auto;
+    }
+    .box{
+        background:#11161d;
+        padding:18px;
+        border-radius:8px;
+        margin-top:15px;
+        border:1px solid #1f2937;
+    }
+    .list-check span{display:block;margin-bottom:6px;}
+    .list-check span::before{
+        content:"✔ ";
+        color:#00ff9d;
+    }
+    footer{
+        margin-top:50px;
+        text-align:center;
+        padding:20px;
+        background:#00a884;
+        color:#fff;
+        font-weight:bold;
+    }
+    table{
+        width:100%;
+        margin-top:15px;
+        border-collapse:collapse;
+    }
+    table td, table th{
+        border:1px solid #333;
+        padding:10px;
+        text-align:center;
+    }
+    th{
+        background:#00a884;
+        color:#000;
+    }
+</style>
+</head>
 
-✔ Gerenciamento multi-instância
-✔ Envio de mensagens programáticas
-✔ Sessões persistentes com reconexão automática
-✔ Consulta de contatos, grupos e mensagens recentes
-✔ Integração com painéis, bots, CRMs e automações
+<body>
 
-Ideal para empresas, provedores de automação, suporte, SAC 24/7 e integrações avançadas.
+<header>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+         alt="WhatsApp Logo">
+    ⚡ NexusWA-API
+</header>
 
-📦 Instalação
-1. Clonar o projeto
-git clone https://github.com/NexusHostSolutions/NexusWA-API.git
+<div class="container">
+
+<p>API WhatsApp multi-instância para integrações, automação, atendimentos e sistemas de comunicação.</p>
+
+<h2>📌 Sobre o Projeto</h2>
+
+<p>O <b>NexusWA-API</b> é uma API de comunicação automatizada para WhatsApp com:</p>
+
+<div class="box list-check">
+<span>Gerenciamento multi-instância</span>
+<span>Envio de mensagens programáticas</span>
+<span>Sessões persistentes com reconexão automática</span>
+<span>Consulta de contatos, grupos e mensagens recentes</span>
+<span>Integração com automações, CRMs e sistemas externos</span>
+</div>
+
+<p><i>Ideal para empresas, provedores de automação, suporte, SAC 24/7 e integrações avançadas.</i></p>
+
+<h2>📦 Instalação</h2>
+
+<pre><code>git clone https://github.com/NexusHostSolutions/NexusWA-API.git
 cd NexusWA-API
+</code></pre>
 
-2. Configurar dependências Node
-cd nex-buttons
+<b>Instalar dependências Node</b>
+<pre><code>cd nex-buttons
 npm install
+</code></pre>
 
-3. Backend Go (opcional)
-go mod tidy
+<b>Backend Go (opcional)</b>
+<pre><code>go mod tidy
+</code></pre>
 
-▶ Executar o servidor
-node nex-buttons/index.js
+<h2>▶ Executar o servidor</h2>
 
+<pre><code>node nex-buttons/index.js
+</code></pre>
 
 Servidor iniciado em:
 
-http://localhost:3001
+<pre><code>http://localhost:3001
+</code></pre>
 
-🔐 Sessões WhatsApp
-📍 Criar sessão (QR ou Pareamento)
-curl -X POST http://localhost:3001/session/start \
+<h2>🔐 Sessões WhatsApp</h2>
+
+<pre><code>curl -X POST http://localhost:3001/session/start \
 -H "Content-Type: application/json" \
 -d '{"instance":"minhaSessao"}'
+</code></pre>
 
-Pareamento com número
-curl -X POST http://localhost:3001/session/pair-code \
+<pre><code>curl -X POST http://localhost:3001/session/pair-code \
 -H "Content-Type: application/json" \
 -d '{"instance":"minhaSessao","phoneNumber":"559999999999"}'
+</code></pre>
 
-💬 Enviar mensagem
-curl -X POST http://localhost:3001/v1/message/text \
+<h2>💬 Enviar mensagem</h2>
+<pre><code>curl -X POST http://localhost:3001/v1/message/text \
 -H "Content-Type: application/json" \
--d '{
-  "instance":"minhaSessao",
-  "number":"559999999999",
-  "text":"Olá! 😊"
-}'
+-d '{ "instance":"minhaSessao", "number":"559999999999", "text":"Olá! 😊" }'
+</code></pre>
 
-📇 Contatos & Grupos
-Listar contatos
-curl http://localhost:3001/v1/contacts/minhaSessao
+<h2>📇 Contatos & Grupos</h2>
 
-Listar grupos
+<pre><code>curl http://localhost:3001/v1/contacts/minhaSessao
 curl http://localhost:3001/v1/groups/minhaSessao
+</code></pre>
 
-📁 Estrutura
-📂 NexusWA-API
- ├─ 📂 nex-buttons        → Núcleo responsável pelas sessões
- ├─ 📂 internal           → Backend Go complementar
- ├─ 📂 auth_info          → Tokens da sessão (não público)
- ├─ README.md
- └─ .gitignore
 
-🔥 Capturas do Projeto
+<h2>📁 Estrutura</h2>
 
-Você poderá colocar imagens reais aqui futuramente
+<pre><code>📂 NexusWA-API
+ ├─ 📂 nex-buttons
+ ├─ 📂 internal
+ ├─ 📂 auth_info
+ └─ README.md
+</code></pre>
 
-Tela	Preview
-QR Code de conexão	
 
-Lista de Contatos	
+<h2>🔥 Capturas (em breve)</h2>
 
-Instâncias conectadas	
-🔥 Roadmap
-Feature	Status
-Webhook mensagens recebidas	🚧 Em desenvolvimento
-Banco de dados para contatos	🔜
-Envio de mídia	🔜
-API Token Security	🔜
-Painel administrativo moderno	🔥 Previsto
-Deploy com Docker	🔥 Previsto
-📜 Licença
+<table>
+<tr><th>Tela</th><th>Preview</th></tr>
+<tr><td>QR Code</td><td>📷</td></tr>
+<tr><td>Contatos</td><td>📄</td></tr>
+<tr><td>Instâncias</td><td>⚙</td></tr>
+</table>
 
-Uso autorizado apenas pelo proprietário/revenda.
-Distribuição comercial externa requer permissão.
+<h2>📜 Licença</h2>
+<p>Uso autorizado ao proprietário. Distribuição comercial requer permissão.</p>
 
-👨‍💻 Desenvolvido por
+<h2>👨‍💻 Desenvolvido por</h2>
+<p><b>NexusHost Solutions</b><br>Automação & infraestrutura WhatsApp.<br><br>
+📩 suporte@nexushostsolutions.com.br<br>
+🌐 https://nexushostsolutions.com.br</p>
 
-NexusHost Solutions
-Soluções profissionais em automação & integração para WhatsApp.
+</div>
 
-📩 suporte@nexushostsolutions.com.br
-
-🌐 https://nexushostsolutions.com.br
+<footer>NexusWA-API — Todos os direitos reservados</footer>
+</body>
+</html>
