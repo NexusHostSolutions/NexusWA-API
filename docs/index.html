@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusWA-API Docs - Glass Neon UI</title>
+
+<style>
+/* ======== GLOBAL ======== */
+body{
+    margin:0;
+    font-family:"Segoe UI", Arial, sans-serif;
+    background:#0c0f12;
+    color:#d9ffe9;
+    overflow-x:hidden;
+}
+
+::-webkit-scrollbar{ width:8px; }
+::-webkit-scrollbar-thumb{ background:#00ff99; border-radius:30px; }
+
+/* ======== NAVBAR ======== */
+header{
+    display:flex;
+    align-items:center;
+    gap:15px;
+    padding:18px 35px;
+    position:sticky; top:0;
+    background:rgba(0,0,0,.35);
+    backdrop-filter:blur(12px);
+    border-bottom:1px solid #0aff9d70;
+    box-shadow:0 0 20px #00ffaf55 inset;
+    z-index:20;
+}
+header img{
+    width:34px;
+    filter:drop-shadow(0 0 8px #00ff9d);
+}
+header h1{
+    font-size:24px;
+    color:#00ffcc;
+    text-shadow:0 0 10px #00ffcc;
+    font-weight:600;
+}
+
+/* ======== HERO ======== */
+.hero{
+    text-align:center;
+    padding:90px 25px 55px;
+}
+.hero h2{
+    font-size:40px;
+    background:linear-gradient(90deg,#00ffcc,#00ff77);
+    -webkit-background-clip:text;
+    color:transparent;
+    text-shadow:0 0 20px #00ff7750;
+}
+.hero p{ font-size:18px; opacity:.88; }
+
+/* ======== BOX (Glass Card) ======== */
+.box{
+    max-width:900px;
+    margin:30px auto;
+    padding:25px;
+    border-radius:14px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid #00ff9d50;
+    backdrop-filter:blur(15px);
+    box-shadow:0 0 20px #00ff9d40 inset, 0 0 25px #00ff9d30;
+    animation:fade .8s ease;
+}
+.box h3{
+    color:#00ffbb;
+    margin-bottom:12px;
+    font-size:22px;
+}
+
+@keyframes fade{ from{opacity:0; transform:translateY(18px);} }
+
+/* ======== CODE BLOCKS ======== */
+pre{
+    background:#021c13;
+    border-left:4px solid #00ff9d;
+    padding:14px;
+    border-radius:8px;
+    overflow:auto;
+    margin-bottom:12px;
+    color:#afffe0;
+    font-size:15px;
+}
+.copy-btn{
+    float:right;
+    margin-top:-28px;
+    margin-right:8px;
+    background:#00ff9d;
+    border:none;
+    padding:5px 12px;
+    font-size:11px;
+    cursor:pointer;
+    border-radius:6px;
+    font-weight:bold;
+    color:#003d26;
+    transition:.3s;
+}
+.copy-btn:hover{ background:#00c776; }
+
+/* ======== FOOTER ======== */
+footer{
+    text-align:center;
+    padding:40px 0;
+    opacity:.7;
+    font-size:14px;
+    margin-top:50px;
+}
+footer b{ color:#00ffb1; }
+
+</style>
+</head>
+<body>
+
+<header>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg">
+    <h1>NexusWA-API | Documentação Premium</h1>
+</header>
+
+<section class="hero">
+    <h2>Glass UI Futurista com Neon</h2>
+    <p>Automação WhatsApp Multi-instância com Botões, Listas, Contatos, Grupos e Integrações.</p>
+</section>
+
+
+<!-- INSTALAÇÃO -->
+<div class="box">
+<h3>📦 Instalação</h3>
+
+<button class="copy-btn" onclick="copy(0)">Copiar</button>
+<pre>
+git clone https://github.com/NexusHostSolutions/NexusWA-API.git
+cd NexusWA-API
+</pre>
+
+<button class="copy-btn" onclick="copy(1)">Copiar</button>
+<pre>
+cd nex-buttons
+npm install
+node index.js
+</pre>
+</div>
+
+
+<!-- SESSÕES -->
+<div class="box">
+<h3>🔐 Criar sessão WhatsApp</h3>
+
+<button class="copy-btn" onclick="copy(2)">Copiar</button>
+<pre>
+curl -X POST http://localhost:3001/session/start \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao"}'
+</pre>
+
+<button class="copy-btn" onclick="copy(3)">Copiar</button>
+<pre>
+curl -X POST http://localhost:3001/session/pair-code \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao","phoneNumber":"559999999999"}'
+</pre>
+</div>
+
+
+<!-- MENSAGENS -->
+<div class="box">
+<h3>💬 Enviar mensagem</h3>
+
+<button class="copy-btn" onclick="copy(4)">Copiar</button>
+<pre>
+curl -X POST http://localhost:3001/v1/message/text \
+-H "Content-Type: application/json" \
+-d '{"instance":"MinhaSessao","number":"559999999999","text":"Olá! 😊"}'
+</pre>
+</div>
+
+
+<!-- CONTATOS -->
+<div class="box">
+<h3>📇 Listar contatos / grupos</h3>
+
+<button class="copy-btn" onclick="copy(5)">Copiar</button>
+<pre>
+curl http://localhost:3001/v1/contacts/minhaSessao
+</pre>
+
+<button class="copy-btn" onclick="copy(6)">Copiar</button>
+<pre>
+curl http://localhost:3001/v1/groups/minhaSessao
+</pre>
+</div>
+
+
+<footer>
+<b>NexusHost Solutions</b> — Automação Inteligente para WhatsApp<br>
+suporte@nexushostsolutions.com.br • nexushostsolutions.com.br
+</footer>
+
+
+<script>
+function copy(num){
+    const blocks=document.querySelectorAll("pre");
+    navigator.clipboard.writeText(blocks[num].innerText);
+    alert("Copiado com sucesso!");
+}
+</script>
+
+</body>
+</html>

@@ -1,197 +1,194 @@
+# ⚡ NexusWA-API
+API WhatsApp multi-instância para automação, integrações e atendimento inteligente.
+
+🚀 Ideal para bots, CRMs, suporte, provedores e automações em massa.
+
+---
+
+## 🔰 Instalação
+
+```bash
+git clone https://github.com/NexusHostSolutions/NexusWA-API.git
+cd NexusWA-API
+```
+
+### Node (API principal)
+```bash
+cd nex-buttons
+npm install
+node index.js
+```
+
+### Go Backend (opcional)
+```bash
+go mod tidy
+go run cmd/server/main.go
+```
+
+🌐 Servidor padrão: http://localhost:3001
+
+---
+
+## 🔐 Gerenciar Sessão
+
+Criar sessão (QR Code / Pair)
+
+```bash
+curl -X POST http://localhost:3001/session/start \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao"}'
+```
+
+Pareamento com número:
+
+```bash
+curl -X POST http://localhost:3001/session/pair-code \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao","phoneNumber":"559999999999"}'
+```
+
+---
+
+## 💬 Enviar mensagem
+
+```bash
+curl -X POST http://localhost:3001/v1/message/text \
+-H "Content-Type: application/json" \
+-d '{ "instance":"minhaSessao", "number":"559999999999", "text":"Olá! 👋" }'
+```
+
+---
+
+## 📇 Contatos & Grupos
+
+```bash
+curl http://localhost:3001/v1/contacts/minhaSessao
+curl http://localhost:3001/v1/groups/minhaSessao
+```
+
+---
+
+## 📁 Estrutura do Projeto
+
+```
+📂 NexusWA-API
+├─ 📂 nex-buttons   → Core API WhatsApp
+├─ 📂 internal      → Go backend extra
+├─ 📂 docs          → Interface Documentação
+├─ 📂 auth_info     → Sessões (Não versionar)
+├─ README.md
+└─ .gitignore
+```
+
+---
+
+## 🔥 Roadmap
+
+| Feature | Status |
+|---|---|
+| Multi-instância | ✔ |
+| Botões Interativos | ✔ |
+| Lista interativa | ✔ |
+| Contatos & grupos API | ✔ |
+| Webhooks | 🚧 |
+| Banco de contatos | 🔜 |
+| Envio de mídia | 🔜 |
+| Painel admin completo | 🔥 Futuro update |
+
+---
+
+## 👨‍💻 Desenvolvido por
+**NexusHost Solutions**  
+🌐 https://nexushostsolutions.com.br  
+📩 suporte@nexushostsolutions.com.br
+
+---
+
+---
+
+# 📄 Interface de Documentação  
+Crie o arquivo:
+
+📁 `docs/index.html`
+
+Cole dentro exatamente o código abaixo:
+
+```html
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>NexusWA-API Documentation</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
+<title>NexusWA API Docs</title>
 <style>
-    body{
-        font-family: Arial, sans-serif;
-        background:#0d1117;
-        color:#e6edf3;
-        margin:0;
-        padding:0;
-        line-height:1.6;
-    }
-    header{
-        background:#00a884;
-        color:#fff;
-        padding:30px;
-        text-align:center;
-        font-size:32px;
-        font-weight:bold;
-        letter-spacing:2px;
-        display:flex;
-        justify-content:center;
-        align-items:center;
-        gap:15px;
-    }
-    header img{
-        width:60px;
-        filter:drop-shadow(0px 0px 6px #00000060);
-    }
-    .container{
-        max-width:900px;
-        margin:auto;
-        padding:25px;
-    }
-    h2{
-        color:#00a884;
-        border-left:5px solid #00a884;
-        padding-left:10px;
-        margin-top:35px;
-    }
-    code, pre{
-        background:#161b22;
-        color:#00ff9d;
-        padding:10px;
-        display:block;
-        border-radius:6px;
-        overflow-x:auto;
-    }
-    .box{
-        background:#11161d;
-        padding:18px;
-        border-radius:8px;
-        margin-top:15px;
-        border:1px solid #1f2937;
-    }
-    .list-check span{display:block;margin-bottom:6px;}
-    .list-check span::before{
-        content:"✔ ";
-        color:#00ff9d;
-    }
-    footer{
-        margin-top:50px;
-        text-align:center;
-        padding:20px;
-        background:#00a884;
-        color:#fff;
-        font-weight:bold;
-    }
-    table{
-        width:100%;
-        margin-top:15px;
-        border-collapse:collapse;
-    }
-    table td, table th{
-        border:1px solid #333;
-        padding:10px;
-        text-align:center;
-    }
-    th{
-        background:#00a884;
-        color:#000;
-    }
+body{
+    background:#0d0d0d;
+    font-family:Arial, sans-serif;
+    color:#fff;
+    margin:0;
+}
+.container{
+    max-width:850px;
+    margin:auto;
+    padding:40px;
+    background:rgba(255,255,255,0.05);
+    backdrop-filter:blur(10px);
+    border-radius:16px;
+    margin-top:40px;
+    border:1px solid rgba(255,255,255,0.1);
+}
+h1{font-size:32px; color:#00ff88; text-align:center;}
+code,pre{background:#111;padding:12px;border-radius:8px;color:#00ff88;display:block;}
+.btn{
+    background:#00ff88;padding:12px 22px;color:#000;
+    border-radius:6px;text-decoration:none;font-weight:bold;
+}
+.section{margin-top:30px;}
+.footer{text-align:center;margin-top:50px;color:#888;}
+hr{border-color:#222;}
+.center{text-align:center;}
+.logo{
+    width:100px;display:block;margin:auto;margin-bottom:20px;
+    filter:drop-shadow(0px 0px 6px #00ff88);
+}
 </style>
 </head>
 
 <body>
-
-<header>
-    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-         alt="WhatsApp Logo">
-    ⚡ NexusWA-API
-</header>
-
 <div class="container">
 
-<p>API WhatsApp multi-instância para integrações, automação, atendimentos e sistemas de comunicação.</p>
+<img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" class="logo">
 
-<h2>📌 Sobre o Projeto</h2>
+<h1>📘 NexusWA - API Documentation</h1>
 
-<p>O <b>NexusWA-API</b> é uma API de comunicação automatizada para WhatsApp com:</p>
+<p>API WhatsApp multi-instância para automação, bots e integrações profissionais.</p>
 
-<div class="box list-check">
-<span>Gerenciamento multi-instância</span>
-<span>Envio de mensagens programáticas</span>
-<span>Sessões persistentes com reconexão automática</span>
-<span>Consulta de contatos, grupos e mensagens recentes</span>
-<span>Integração com automações, CRMs e sistemas externos</span>
+<hr>
+
+<div class="section">
+<h2>🚀 Iniciar Sessão</h2>
+<pre>POST /session/start {"instance":"Nexus01"}</pre>
+<pre>POST /session/pair-code {"instance":"Nexus01","phoneNumber":"559999999999"}</pre>
 </div>
 
-<p><i>Ideal para empresas, provedores de automação, suporte, SAC 24/7 e integrações avançadas.</i></p>
-
-<h2>📦 Instalação</h2>
-
-<pre><code>git clone https://github.com/NexusHostSolutions/NexusWA-API.git
-cd NexusWA-API
-</code></pre>
-
-<b>Instalar dependências Node</b>
-<pre><code>cd nex-buttons
-npm install
-</code></pre>
-
-<b>Backend Go (opcional)</b>
-<pre><code>go mod tidy
-</code></pre>
-
-<h2>▶ Executar o servidor</h2>
-
-<pre><code>node nex-buttons/index.js
-</code></pre>
-
-Servidor iniciado em:
-
-<pre><code>http://localhost:3001
-</code></pre>
-
-<h2>🔐 Sessões WhatsApp</h2>
-
-<pre><code>curl -X POST http://localhost:3001/session/start \
--H "Content-Type: application/json" \
--d '{"instance":"minhaSessao"}'
-</code></pre>
-
-<pre><code>curl -X POST http://localhost:3001/session/pair-code \
--H "Content-Type: application/json" \
--d '{"instance":"minhaSessao","phoneNumber":"559999999999"}'
-</code></pre>
-
+<div class="section">
 <h2>💬 Enviar mensagem</h2>
-<pre><code>curl -X POST http://localhost:3001/v1/message/text \
--H "Content-Type: application/json" \
--d '{ "instance":"minhaSessao", "number":"559999999999", "text":"Olá! 😊" }'
-</code></pre>
-
-<h2>📇 Contatos & Grupos</h2>
-
-<pre><code>curl http://localhost:3001/v1/contacts/minhaSessao
-curl http://localhost:3001/v1/groups/minhaSessao
-</code></pre>
-
-
-<h2>📁 Estrutura</h2>
-
-<pre><code>📂 NexusWA-API
- ├─ 📂 nex-buttons
- ├─ 📂 internal
- ├─ 📂 auth_info
- └─ README.md
-</code></pre>
-
-
-<h2>🔥 Capturas (em breve)</h2>
-
-<table>
-<tr><th>Tela</th><th>Preview</th></tr>
-<tr><td>QR Code</td><td>📷</td></tr>
-<tr><td>Contatos</td><td>📄</td></tr>
-<tr><td>Instâncias</td><td>⚙</td></tr>
-</table>
-
-<h2>📜 Licença</h2>
-<p>Uso autorizado ao proprietário. Distribuição comercial requer permissão.</p>
-
-<h2>👨‍💻 Desenvolvido por</h2>
-<p><b>NexusHost Solutions</b><br>Automação & infraestrutura WhatsApp.<br><br>
-📩 suporte@nexushostsolutions.com.br<br>
-🌐 https://nexushostsolutions.com.br</p>
-
+<pre>POST /v1/message/text {"instance":"Nexus01","number":"559999999999","text":"Olá!"}</pre>
 </div>
 
-<footer>NexusWA-API — Todos os direitos reservados</footer>
+<div class="section">
+<h2>📇 Contatos / Grupos</h2>
+<pre>GET /v1/contacts/Nexus01</pre>
+<pre>GET /v1/groups/Nexus01</pre>
+</div>
+
+<div class="section center">
+<a href="https://nexushostsolutions.com.br" class="btn">Site Oficial</a>
+</div>
+
+<div class="footer">
+<hr>
+© 2025 NexusHost Solutions - Todos os direitos reservados.
+</div>
+</div>
 </body>
 </html>
