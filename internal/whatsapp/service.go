@@ -52,9 +52,40 @@ func (s *Service) SearchContacts(instanceKey, query string) ([]map[string]interf
 	return s.Client.SearchContacts(instanceKey, query)
 }
 
-// 🔥 NOVO: Buscar mensagens de um chat
 func (s *Service) GetMessages(instanceKey, jid string) ([]map[string]interface{}, error) {
 	return s.Client.GetMessages(instanceKey, jid)
+}
+
+// 🔥 Botões nativos
+func (s *Service) SendButtons(instanceKey, number, message, footer, title string, buttons []map[string]string) (string, error) {
+	if !s.Client.IsConnected(instanceKey) {
+		return "", errors.New("instance not connected")
+	}
+	return s.Client.SendButtons(instanceKey, number, message, footer, title, buttons)
+}
+
+// 🔥 Lista de seleção
+func (s *Service) SendList(instanceKey, number, title, message, footer, buttonText string, sections []map[string]interface{}) (string, error) {
+	if !s.Client.IsConnected(instanceKey) {
+		return "", errors.New("instance not connected")
+	}
+	return s.Client.SendList(instanceKey, number, title, message, footer, buttonText, sections)
+}
+
+// 🔥 Botão com URL
+func (s *Service) SendUrlButton(instanceKey, number, message, footer, title, buttonText, url string) (string, error) {
+	if !s.Client.IsConnected(instanceKey) {
+		return "", errors.New("instance not connected")
+	}
+	return s.Client.SendUrlButton(instanceKey, number, message, footer, title, buttonText, url)
+}
+
+// 🔥 Botão de copiar
+func (s *Service) SendCopyButton(instanceKey, number, message, footer, title, buttonText, copyCode string) (string, error) {
+	if !s.Client.IsConnected(instanceKey) {
+		return "", errors.New("instance not connected")
+	}
+	return s.Client.SendCopyButton(instanceKey, number, message, footer, title, buttonText, copyCode)
 }
 
 // Funções placeholder mantidas para compatibilidade com handlers
@@ -70,9 +101,6 @@ func (s *Service) CreateGroup(instanceKey string, req models.CreateGroupRequest)
 	return s.Client.CreateGroup(instanceKey, req.Subject, req.Participants)
 }
 
-// EventBus removido pois agora o Node.js gerencia eventos internamente
-// Se precisar de Webhooks, o Node.js deve disparar o POST para seu servidor, 
-// ou o Go pode fazer polling (não recomendado).
 func (s *Service) GetEventBus() interface{} {
 	return nil
 }

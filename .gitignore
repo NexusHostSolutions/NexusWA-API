@@ -1,4 +1,31 @@
+# Node
+node_modules/
+package-lock.json
+npm-debug.log
+logs/
+tmp/
+dist/
+build/
+
+# WhatsApp Auth (NUNCA subir!)
+auth_info/
+auth/
+session/
+creds.json
+
+# Configs sensíveis
 .env
-sessions/
-nexuswa
-nexus.db
+*.env
+.env.local
+.env.backup
+
+# Go
+bin/
+vendor/
+*.exe
+
+# SO e IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
