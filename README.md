@@ -1,230 +1,99 @@
-# 🚀 NexusWA-API v2.0 - ATUALIZAÇÃO COMPLETA
+<p align="center"> <img src="https://via.placeholder.com/900x200/020617/0ea5e9?text=NexusWA+API" style="border-radius:10px" /> </p> <h1 align="center">⚡ NexusWA-API</h1> <p align="center">API WhatsApp multi-instância para integrações, automação, atendimentos e sistemas de comunicação.</p> <p align="center"> <img src="https://img.shields.io/badge/Status-Ativo-brightgreen?style=for-the-badge"> <img src="https://img.shields.io/badge/Framework-Node.js-black?style=for-the-badge&logo=node.js"> <img src="https://img.shields.io/badge/Backend-Go-blue?style=for-the-badge&logo=go"> <img src="https://img.shields.io/badge/API-REST%20JSON-orange?style=for-the-badge"> </p>
+📌 Sobre o Projeto
 
-## ✨ O QUE FOI CORRIGIDO E MELHORADO
+O NexusWA-API é uma API de comunicação automatizada para WhatsApp com:
 
-### ✅ FUNCIONALIDADES IMPLEMENTADAS
+✔ Gerenciamento multi-instância
+✔ Envio de mensagens programáticas
+✔ Sessões persistentes com reconexão automática
+✔ Consulta de contatos, grupos e mensagens recentes
+✔ Integração com painéis, bots, CRMs e automações
 
-#### 1. **Sistema de Contatos Completo**
-- ✅ Busca TODOS os contatos da instância conectada
-- ✅ Exibe foto real do contato (avatar)
-- ✅ Filtra por usuários e grupos
-- ✅ Busca por nome/número em tempo real
-- ✅ Pesquisa de contatos implementada no chat
+Ideal para empresas, provedores de automação, suporte, SAC 24/7 e integrações avançadas.
 
-#### 2. **Listagem de Grupos**
-- ✅ Lista todos os grupos com detalhes completos
-- ✅ Mostra quantidade de participantes
-- ✅ Exibe foto do grupo
-- ✅ Informações de criador e data de criação
-
-#### 3. **Estatísticas em Tempo Real**
-- ✅ Contador de mensagens enviadas por instância
-- ✅ Total de contatos
-- ✅ Total de grupos
-- ✅ Dashboard atualizado automaticamente
-
-#### 4. **Foto Real da Instância**
-- ✅ Puxa foto de perfil do WhatsApp conectado
-- ✅ Exibição no card da instância
-- ✅ Fallback para emoji caso não tenha foto
-
-#### 5. **Reconexão Automática**
-- ✅ Sistema de eventos que detecta desconexão
-- ✅ Reconecta automaticamente após 5 segundos
-- ✅ Notificações visuais de status
-
-#### 6. **Sistema de Eventos (EventBus)**
-- ✅ Eventos de mensagens recebidas
-- ✅ Eventos de conexão/desconexão
-- ✅ Eventos de QR Code gerado
-- ✅ Eventos de confirmação de entrega
-- ✅ Base para webhooks, RabbitMQ, SQS
-
-#### 7. **Chat Funcional**
-- ✅ Busca de contatos implementada
-- ✅ Envio de mensagens direto pelo chat
-- ✅ Interface limpa e responsiva
-- ✅ Exibe fotos dos contatos
-- ✅ Loading states nos envios
-
-#### 8. **Notificações Estilo WhatsApp Business**
-- ✅ Modal de notificações no canto superior direito
-- ✅ Animações suaves de entrada/saída
-- ✅ Tipos: success, error, info
-- ✅ Timestamp automático
-- ✅ Auto-dismiss após 4 segundos
-
-#### 9. **Mensagens Interativas Atualizadas**
-- ✅ Suporte completo para botões nativos
-- ✅ Suporte para listas
-- ✅ Formato 2025 do WhatsApp/Meta
-- ✅ Headers, footers e body customizáveis
-
-#### 10. **Performance e Estabilidade**
-- ✅ WAL mode no SQLite para alta performance
-- ✅ Mutex para operações thread-safe
-- ✅ Tratamento de erros robusto
-- ✅ Logs detalhados de debug
-
----
-
-## 📁 ESTRUTURA DO PROJETO
-```
-NexusWA-API/
-├── config/
-│   └── config.go              # Configurações globais
-├── internal/
-│   ├── handlers/
-│   │   ├── session.go         # Conexão, QR, logout
-│   │   ├── messages.go        # Envio de mensagens
-│   │   └── groups.go          # Gerenciamento de grupos
-│   ├── middleware/
-│   │   └── auth.go            # Autenticação por API key
-│   ├── models/
-│   │   ├── message.go         # Structs de mensagens
-│   │   ├── group.go           # Structs de grupos
-│   │   └── settings.go        # Structs de configurações
-│   ├── server/
-│   │   └── server.go          # Rotas e configuração Fiber
-│   └── whatsapp/
-│       ├── baileys_client.go  # Cliente whatsmeow (CORE)
-│       └── service.go         # Service layer
-├── public/
-│   └── index.html             # Dashboard React (SPA)
-├── sessions/                  # Banco SQLite das sessões
-├── main.go                    # Entry point
-├── go.mod                     # Dependências
-├── .env.example               # Exemplo de variáveis
-└── README.md                  # Este arquivo
-```
-
----
-
-## 🚀 INSTALAÇÃO E USO
-
-### 1. **Pré-requisitos**
-```bash
-- Go 1.21+
-- Git
-```
-
-### 2. **Clone e Configure**
-```bash
-# Clone o projeto
+📦 Instalação
+1. Clonar o projeto
 git clone https://github.com/NexusHostSolutions/NexusWA-API.git
 cd NexusWA-API
 
-# Copie o .env
-cp .env.example .env
+2. Configurar dependências Node
+cd nex-buttons
+npm install
 
-# Edite se necessário (porta, API key, etc)
-nano .env
-```
-
-### 3. **Instale Dependências**
-```bash
+3. Backend Go (opcional)
 go mod tidy
-go mod download
-```
 
-### 4. **Execute**
-```bash
-go run main.go
-```
+▶ Executar o servidor
+node nex-buttons/index.js
 
-### 5. **Acesse o Dashboard**
-```
-http://localhost:8082
-```
 
-**Credenciais padrão:**
-- API Key: `8msyqcp4o7065sz1nxdg8y69kp7gduijvb0zptz867`
+Servidor iniciado em:
 
-⚠️ **IMPORTANTE:** Mude a API Key em produção no arquivo `.env`!
+http://localhost:3001
 
----
+🔐 Sessões WhatsApp
+📍 Criar sessão (QR ou Pareamento)
+curl -X POST http://localhost:3001/session/start \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao"}'
 
-## 📡 ENDPOINTS DA API
+Pareamento com número
+curl -X POST http://localhost:3001/session/pair-code \
+-H "Content-Type: application/json" \
+-d '{"instance":"minhaSessao","phoneNumber":"559999999999"}'
 
-### **Instâncias**
+💬 Enviar mensagem
+curl -X POST http://localhost:3001/v1/message/text \
+-H "Content-Type: application/json" \
+-d '{
+  "instance":"minhaSessao",
+  "number":"559999999999",
+  "text":"Olá! 😊"
+}'
 
-#### Conectar
-```http
-POST /v1/instance/:instance/connect
-Headers: apikey: SUA_API_KEY
-```
+📇 Contatos & Grupos
+Listar contatos
+curl http://localhost:3001/v1/contacts/minhaSessao
 
-#### Informações
-```http
-GET /v1/instance/:instance/info
-Headers: apikey: SUA_API_KEY
+Listar grupos
+curl http://localhost:3001/v1/groups/minhaSessao
 
-Response:
-{
-  "jid": "5511999999999@s.whatsapp.net",
-  "name": "Meu Nome",
-  "avatar": "https://...",
-  "status": "connected",
-  "contacts": 150,
-  "groups": 10,
-  "messagesSent": 523
-}
-```
+📁 Estrutura
+📂 NexusWA-API
+ ├─ 📂 nex-buttons        → Núcleo responsável pelas sessões
+ ├─ 📂 internal           → Backend Go complementar
+ ├─ 📂 auth_info          → Tokens da sessão (não público)
+ ├─ README.md
+ └─ .gitignore
 
----
+🔥 Capturas do Projeto
 
-## 🎯 FUNCIONALIDADES DO DASHBOARD
+Você poderá colocar imagens reais aqui futuramente
 
-### **1. Página de Instâncias**
-- Criar novas instâncias
-- Conectar via QR Code ou Pareamento
-- Ver estatísticas em tempo real
-- Copiar API Key
-- Sincronizar, reiniciar, desconectar
+Tela	Preview
+QR Code de conexão	
 
-### **2. Página de Chat**
-- Selecionar instância conectada
-- Buscar contatos por nome/número
-- Filtrar: Todos, Usuários, Grupos
-- Ver fotos dos contatos
-- Enviar mensagens em tempo real
+Lista de Contatos	
 
-### **3. Configurações**
-- Rejeitar chamadas
-- Ignorar grupos
-- Sempre online
-- Sincronizar histórico
+Instâncias conectadas	
+🔥 Roadmap
+Feature	Status
+Webhook mensagens recebidas	🚧 Em desenvolvimento
+Banco de dados para contatos	🔜
+Envio de mídia	🔜
+API Token Security	🔜
+Painel administrativo moderno	🔥 Previsto
+Deploy com Docker	🔥 Previsto
+📜 Licença
 
----
+Uso autorizado apenas pelo proprietário/revenda.
+Distribuição comercial externa requer permissão.
 
-## 🔥 MELHORIAS TÉCNICAS
+👨‍💻 Desenvolvido por
 
-### **Backend (Go)**
-1. Sistema de Eventos (EventBus)
-2. Reconexão Automática
-3. Contador de Mensagens
-4. Busca de Contatos
-5. Fotos de Perfil
+NexusHost Solutions
+Soluções profissionais em automação & integração para WhatsApp.
 
-### **Frontend (React)**
-1. Sistema de Notificações
-2. Chat Funcional
-3. Dark Mode
-4. Responsividade
+📩 suporte@nexushostsolutions.com.br
 
----
-
-## 🤝 SUPORTE
-
-Para dúvidas ou problemas:
-- GitHub Issues: [NexusHostSolutions/NexusWA-API](https://github.com/NexusHostSolutions/NexusWA-API/issues)
-
----
-
-## 📄 LICENÇA
-
-MIT License
-
----
-
-**Desenvolvido com ❤️ por NexusHost Solutions**
+🌐 https://nexushostsolutions.com.br
