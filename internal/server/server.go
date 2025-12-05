@@ -27,6 +27,9 @@ func NewServer(cfg *config.Config) *fiber.App {
 	sessionHandler := handlers.NewSessionHandler(waService)
 	msgHandler := handlers.NewMessageHandler(waService)
 	groupHandler := handlers.NewGroupHandler(waService)
+	
+	// 🆕 Handler de Banco de Dados
+	dbHandler := handlers.NewDatabaseHandler(waService)
 
 	app.Static("/", "./public")
 
@@ -44,7 +47,7 @@ func NewServer(cfg *config.Config) *fiber.App {
 		return c.JSON(info)
 	})
 
-	// === PAREAMENTO (CÓDIGO) ===
+	// === PAREAMENTO ===
 	v1.Post("/instance/:instance/pair", func(c *fiber.Ctx) error {
 		type PairReq struct{ Phone string `json:"phone"` }
 		var req PairReq
@@ -52,7 +55,6 @@ func NewServer(cfg *config.Config) *fiber.App {
 			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
 		}
 
-		// Chama o serviço que chama o Node
 		code, err := waService.PairPhone(c.Params("instance"), req.Phone)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -68,7 +70,6 @@ func NewServer(cfg *config.Config) *fiber.App {
 	v1.Post("/message/:instance/text", msgHandler.SendText)
 	v1.Post("/message/:instance/interactive", msgHandler.SendInteractive)
 
-	// 🔥 NOVO: Rota para buscar mensagens de um chat
 	v1.Get("/messages/:instance/:jid", func(c *fiber.Ctx) error {
 		instance := c.Params("instance")
 		jid := c.Params("jid")
@@ -118,6 +119,16 @@ func NewServer(cfg *config.Config) *fiber.App {
 	v1.Post("/settings/:instance/save", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "success", "msg": "Salvo"})
 	})
+
+	// ============================================
+	// 🆕 ROTAS DE BANCO DE DADOS (NOVAS)
+	// ============================================
+	
+	v1.Get("/db/contacts/:instance", dbHandler.GetContacts)
+	v1.Get("/db/groups/:instance", dbHandler.GetGroups)
+	v1.Get("/db/messages/:instance/:jid", dbHandler.GetMessages)
+
+	// ============================================
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok", "version": "3.0-baileys"})

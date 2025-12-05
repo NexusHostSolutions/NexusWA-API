@@ -7,6 +7,7 @@ const {
     makeCacheableSignalKeyStore,
     fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
+require('dotenv').config();
 const pino = require('pino');
 const express = require('express');
 const fs = require('fs');
@@ -16,18 +17,127 @@ const cors = require('cors');
 // 🔥 Importa o helper de botões que FUNCIONA
 const { sendButtons, sendInteractiveMessage } = require('@ryuu-reinzz/button-helper');
 
+// ============================================
+// 🆕 POSTGRESQL - Pool de Conexão
+// ============================================
+const { Pool } = require('pg');
+
+const pool = new Pool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+});
+
+// Testa conexão ao iniciar
+pool.query('SELECT NOW()')
+    .then(() => console.log('✅ PostgreSQL conectado!'))
+    .catch(err => console.error('❌ Erro PostgreSQL:', err.message));
+
+// ============================================
+// 🆕 FUNÇÕES DE BANCO DE DADOS
+// ============================================
+
+async function saveContact(instance, jid, nome) {
+    try {
+        await pool.query(`
+            INSERT INTO contatos (instance, jid, nome)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (instance, jid) 
+            DO UPDATE SET nome = EXCLUDED.nome
+        `, [instance, jid, nome || jid.split('@')[0]]);
+    } catch (err) {
+        console.error(`[DB] Erro ao salvar contato:`, err.message);
+    }
+}
+
+async function saveGroup(instance, jid, nome) {
+    try {
+        await pool.query(`
+            INSERT INTO grupos (instance, jid, nome)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (instance, jid) 
+            DO UPDATE SET nome = EXCLUDED.nome
+        `, [instance, jid, nome || jid.split('@')[0]]);
+    } catch (err) {
+        console.error(`[DB] Erro ao salvar grupo:`, err.message);
+    }
+}
+
+async function saveMessage(instance, jid, tipo, conteudo) {
+    try {
+        await pool.query(`
+            INSERT INTO mensagens (instance, jid, tipo, conteudo)
+            VALUES ($1, $2, $3, $4)
+        `, [instance, jid, tipo, conteudo]);
+    } catch (err) {
+        console.error(`[DB] Erro ao salvar mensagem:`, err.message);
+    }
+}
+
+async function getContactsFromDB(instance) {
+    try {
+        const result = await pool.query(`
+            SELECT jid, nome, criado_em 
+            FROM contatos 
+            WHERE instance = $1 
+            ORDER BY nome ASC
+        `, [instance]);
+        return result.rows;
+    } catch (err) {
+        console.error(`[DB] Erro ao buscar contatos:`, err.message);
+        return [];
+    }
+}
+
+async function getGroupsFromDB(instance) {
+    try {
+        const result = await pool.query(`
+            SELECT jid, nome, criado_em 
+            FROM grupos 
+            WHERE instance = $1 
+            ORDER BY nome ASC
+        `, [instance]);
+        return result.rows;
+    } catch (err) {
+        console.error(`[DB] Erro ao buscar grupos:`, err.message);
+        return [];
+    }
+}
+
+async function getMessagesFromDB(instance, jid) {
+    try {
+        const result = await pool.query(`
+            SELECT id, tipo, conteudo, criado_em 
+            FROM mensagens 
+            WHERE instance = $1 AND jid = $2
+            ORDER BY criado_em DESC
+            LIMIT 100
+        `, [instance, jid]);
+        return result.rows;
+    } catch (err) {
+        console.error(`[DB] Erro ao buscar mensagens:`, err.message);
+        return [];
+    }
+}
+
+// ============================================
+// FIM DAS FUNÇÕES DE BANCO
+// ============================================
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 
 const PORT = 3001;
 
-// --- ESTRUTURAS DE DADOS ---
 const sessions = new Map();
 const qrCodes = new Map();
 const retryCounters = new Map();
-
-// Store Manual (RAM)
 const localStore = new Map();
 
 function getStore(instanceId) {
@@ -42,7 +152,6 @@ function getStore(instanceId) {
 // ============================================
 
 async function startSession(instanceId) {
-    // Evita duplicidade se já estiver conectado e saudável
     if (sessions.has(instanceId) && !sessions.get(instanceId).ws?.isClosed) {
         return sessions.get(instanceId);
     }
@@ -80,8 +189,6 @@ async function startSession(instanceId) {
         }
     });
 
-    // --- EVENTOS ---
-
     sock.ev.on('creds.update', saveCreds);
 
     // 🔥 Carga Inicial de Contatos
@@ -92,8 +199,12 @@ async function startSession(instanceId) {
                 ...(storeData.contacts[contact.id] || {}), 
                 ...contact 
             };
+            
+            // 🆕 Salva no banco de dados
+            const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
+            saveContact(instanceId, contact.id, nome);
         }
-        console.log(`[${instanceId}] ✅ ${contacts.length} contatos sincronizados.`);
+        console.log(`[${instanceId}] ✅ ${contacts.length} contatos sincronizados (RAM + DB).`);
     });
 
     sock.ev.on('contacts.upsert', (contacts) => {
@@ -103,11 +214,14 @@ async function startSession(instanceId) {
                 ...(storeData.contacts[contact.id] || {}), 
                 ...contact 
             };
+            
+            // 🆕 Salva no banco de dados
+            const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
+            saveContact(instanceId, contact.id, nome);
         }
-        console.log(`[${instanceId}] 📇 ${contacts.length} contatos atualizados.`);
+        console.log(`[${instanceId}] 📇 ${contacts.length} contatos atualizados (RAM + DB).`);
     });
 
-    // 🔥 Captura mensagens novas em tempo real
     sock.ev.on('messages.upsert', ({ messages }) => {
         const storeData = getStore(instanceId);
         messages.forEach(m => {
@@ -116,7 +230,6 @@ async function startSession(instanceId) {
         console.log(`[${instanceId}] 📩 Mensagens novas: ${messages.length}`);
     });
 
-    // 🔥 Atualização automática de mensagens
     sock.ev.on('messages.update', updates => {
         const storeData = getStore(instanceId);
         updates.forEach(u => {
@@ -126,7 +239,6 @@ async function startSession(instanceId) {
         });
     });
 
-    // 🔥 Sincronização de Chats
     sock.ev.on('chats.set', ({ chats }) => {
         const storeData = getStore(instanceId);
         for (const chat of chats) {
@@ -138,7 +250,6 @@ async function startSession(instanceId) {
         console.log(`[${instanceId}] 💬 ${chats.length} chats sincronizados.`);
     });
 
-    // 🔥 Captura chats incrementais
     sock.ev.on('chats.upsert', (chats) => {
         const storeData = getStore(instanceId);
         chats.forEach(chat => {
@@ -147,7 +258,6 @@ async function startSession(instanceId) {
         console.log(`[${instanceId}] 🗂 Chats atualizados: ${Object.keys(storeData.chats).length}`);
     });
 
-    // Controle de Conexão
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -168,12 +278,18 @@ async function startSession(instanceId) {
 
             const storeData = getStore(instanceId);
 
-            // Espera 3s para store ser carregada e busca grupos
             setTimeout(async () => {
                 try {
                     const groups = await sock.groupFetchAllParticipating();
-                    Object.values(groups).forEach(g => storeData.chats[g.id] = g);
-                    console.log(`[${instanceId}] 🔥 Grupos carregados: ${Object.keys(groups).length}`);
+                    const groupList = Object.values(groups);
+                    
+                    groupList.forEach(g => {
+                        storeData.chats[g.id] = g;
+                        // 🆕 Salva grupo no banco de dados
+                        saveGroup(instanceId, g.id, g.subject || g.id.split('@')[0]);
+                    });
+                    
+                    console.log(`[${instanceId}] 🔥 Grupos carregados: ${groupList.length} (RAM + DB)`);
                 } catch(e) { 
                     console.log("Erro grupos:", e.message); 
                 }
@@ -193,7 +309,6 @@ async function startSession(instanceId) {
 
             console.log(`[${instanceId}] 🔴 DESCONECTADO | Motivo: ${reason || statusCode} | Reconnect: ${shouldReconnect}`);
 
-            // Limpeza de memória
             sessions.delete(instanceId);
             qrCodes.delete(instanceId);
 
@@ -220,8 +335,6 @@ async function startSession(instanceId) {
 // ============================================
 // ROTAS API
 // ============================================
-
-// --- SESSÃO ---
 
 app.post('/session/start', async (req, res) => {
     const { instance } = req.body;
@@ -296,8 +409,6 @@ app.post('/session/logout', async (req, res) => {
     }
 });
 
-// --- INFO ---
-
 app.get('/v1/instance/:instance/info', async (req, res) => {
     const { instance } = req.params;
     const sock = sessions.get(instance);
@@ -324,7 +435,6 @@ app.get('/v1/instance/:instance/info', async (req, res) => {
 
 // --- MENSAGENS ---
 
-// Texto simples
 app.post('/v1/message/text', async (req, res) => {
     const { instance, number, text } = req.body;
     const sock = sessions.get(instance);
@@ -338,6 +448,9 @@ app.post('/v1/message/text', async (req, res) => {
 
         storeData.sentCount = (storeData.sentCount || 0) + 1;
 
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'text', text);
+
         res.json({ 
             status: 'success',
             key: sent.key,
@@ -349,7 +462,6 @@ app.post('/v1/message/text', async (req, res) => {
     }
 });
 
-// 🔥 Botões usando @ryuu-reinzz/button-helper (FUNCIONA!)
 app.post('/v1/message/buttons', async (req, res) => {
     const { instance, number, message, footer, buttons, title } = req.body;
 
@@ -359,7 +471,6 @@ app.post('/v1/message/buttons', async (req, res) => {
     const jid = number.includes('@') ? number : number + '@s.whatsapp.net';
 
     try {
-        // Usa o helper que funciona!
         const result = await sendButtons(sock, jid, {
             title: title || '',
             text: message,
@@ -373,6 +484,9 @@ app.post('/v1/message/buttons', async (req, res) => {
         const storeData = getStore(instance);
         storeData.sentCount = (storeData.sentCount || 0) + 1;
 
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'buttons', JSON.stringify({ message, footer, title, buttons }));
+
         return res.json({ 
             status: 'success', 
             messageId: result?.key?.id || 'sent'
@@ -384,7 +498,6 @@ app.post('/v1/message/buttons', async (req, res) => {
     }
 });
 
-// 🔥 Lista de Seleção
 app.post('/v1/message/list', async (req, res) => {
     const { instance, number, title, message, footer, buttonText, sections } = req.body;
     const sock = sessions.get(instance);
@@ -393,7 +506,6 @@ app.post('/v1/message/list', async (req, res) => {
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
 
-        // Usa sendInteractiveMessage para listas
         const result = await sendInteractiveMessage(sock, jid, {
             text: message,
             footer: footer || 'NexusWA',
@@ -417,6 +529,9 @@ app.post('/v1/message/list', async (req, res) => {
         const storeData = getStore(instance);
         storeData.sentCount = (storeData.sentCount || 0) + 1;
 
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'list', JSON.stringify({ title, message, footer, buttonText, sections }));
+
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
         console.error("Erro ao enviar lista:", e);
@@ -424,7 +539,6 @@ app.post('/v1/message/list', async (req, res) => {
     }
 });
 
-// 🔥 Botão com URL
 app.post('/v1/message/url-button', async (req, res) => {
     const { instance, number, message, footer, title, buttonText, url } = req.body;
     const sock = sessions.get(instance);
@@ -447,6 +561,9 @@ app.post('/v1/message/url-button', async (req, res) => {
             }]
         });
 
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'url-button', JSON.stringify({ message, footer, title, buttonText, url }));
+
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
         console.error("Erro ao enviar botão URL:", e);
@@ -454,7 +571,6 @@ app.post('/v1/message/url-button', async (req, res) => {
     }
 });
 
-// 🔥 Botão de Copiar
 app.post('/v1/message/copy-button', async (req, res) => {
     const { instance, number, message, footer, title, buttonText, copyCode } = req.body;
     const sock = sessions.get(instance);
@@ -476,6 +592,9 @@ app.post('/v1/message/copy-button', async (req, res) => {
             }]
         });
 
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'copy-button', JSON.stringify({ message, footer, title, buttonText, copyCode }));
+
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
         console.error("Erro ao enviar botão copiar:", e);
@@ -483,7 +602,6 @@ app.post('/v1/message/copy-button', async (req, res) => {
     }
 });
 
-// Interactive (compatibilidade)
 app.post('/v1/message/interactive', async (req, res) => {
     const { instance, number, interactive } = req.body;
     const sock = sessions.get(instance);
@@ -492,7 +610,6 @@ app.post('/v1/message/interactive', async (req, res) => {
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
         
-        // Se tiver botões no formato interactive, converte para o helper
         if (interactive.action?.buttons) {
             const buttons = interactive.action.buttons.map(b => ({
                 id: b.id || b.buttonParamsJson,
@@ -505,14 +622,20 @@ app.post('/v1/message/interactive', async (req, res) => {
                 title: interactive.header?.text || '',
                 buttons: buttons
             });
+
+            // 🆕 Salva mensagem no banco de dados
+            await saveMessage(instance, jid, 'interactive', JSON.stringify(interactive));
             
             return res.json({ status: 'success', messageId: result?.key?.id || 'sent' });
         }
         
-        // Fallback para texto simples
         const sent = await sock.sendMessage(jid, { 
             text: interactive.body?.text || interactive.text || 'Mensagem interativa'
         });
+
+        // 🆕 Salva mensagem no banco de dados
+        await saveMessage(instance, jid, 'interactive-text', interactive.body?.text || interactive.text || '');
+
         res.json({ status: 'success', key: sent.key });
         
     } catch(e) { 
@@ -528,14 +651,12 @@ app.get('/v1/contacts/:instance', async (req, res) => {
     const storeData = getStore(instance);
     const sock = sessions.get(instance);
     
-    // Contatos individuais
     const contacts = Object.values(storeData.contacts).map(c => ({
         jid: c.id,
         name: c.name || c.notify || c.verifiedName || c.id.split('@')[0],
         is_group: c.id.endsWith('@g.us')
     }));
     
-    // Adiciona grupos do storeData.chats
     const groupsFromChats = Object.values(storeData.chats || {})
         .filter(chat => chat.id && chat.id.endsWith('@g.us'))
         .map(g => ({
@@ -544,7 +665,6 @@ app.get('/v1/contacts/:instance', async (req, res) => {
             is_group: true
         }));
     
-    // Se não tiver grupos no cache, busca do socket diretamente
     let groupsFromSocket = [];
     if (groupsFromChats.length === 0 && sock) {
         try {
@@ -555,14 +675,12 @@ app.get('/v1/contacts/:instance', async (req, res) => {
                 is_group: true
             }));
             
-            // Salva no cache
             Object.values(groups).forEach(g => storeData.chats[g.id] = g);
         } catch(e) {
             console.log(`[${instance}] Erro ao buscar grupos:`, e.message);
         }
     }
     
-    // Combina contatos + grupos (evita duplicatas)
     const allGroups = [...groupsFromChats, ...groupsFromSocket];
     const groupJids = new Set(allGroups.map(g => g.jid));
     const filteredContacts = contacts.filter(c => !groupJids.has(c.jid));
@@ -588,8 +706,6 @@ app.get('/v1/groups/:instance', async (req, res) => {
     } catch(e) { res.json([]); }
 });
 
-// --- MENSAGENS ---
-
 app.get('/v1/messages/:instance/:jid', (req, res) => {
     const { instance, jid } = req.params;
     const storeData = getStore(instance);
@@ -599,6 +715,40 @@ app.get('/v1/messages/:instance/:jid', (req, res) => {
         .sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0));
 
     res.json(msgs);
+});
+
+// ============================================
+// 🆕 ROTAS DE BANCO DE DADOS (NOVAS)
+// ============================================
+
+app.get('/v1/db/contacts/:instance', async (req, res) => {
+    const { instance } = req.params;
+    try {
+        const contacts = await getContactsFromDB(instance);
+        res.json(contacts);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/v1/db/groups/:instance', async (req, res) => {
+    const { instance } = req.params;
+    try {
+        const groups = await getGroupsFromDB(instance);
+        res.json(groups);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/v1/db/messages/:instance/:jid', async (req, res) => {
+    const { instance, jid } = req.params;
+    try {
+        const messages = await getMessagesFromDB(instance, jid);
+        res.json(messages);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // ============================================

@@ -2,31 +2,184 @@ package whatsapp
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/nexus/gowhats/internal/models"
+
+	_ "github.com/lib/pq"
 )
 
 type BaileysClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	DB         *sql.DB
 }
 
 func NewBaileysClient() *BaileysClient {
-	return &BaileysClient{
+	client := &BaileysClient{
 		BaseURL: "http://localhost:3001",
 		HTTPClient: &http.Client{
 			Timeout: 50 * time.Second,
 		},
 	}
+
+	client.initDB()
+
+	return client
 }
 
-// --- CONEXÃO ---
+// ============================================
+// 🆕 FUNÇÕES DE BANCO DE DADOS
+// ============================================
+
+func (c *BaileysClient) initDB() {
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "")
+	user := getEnv("DB_USER", "")
+	password := getEnv("DB_PASS", "")
+	dbname := getEnv("DB_NAME", "")
+
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		fmt.Printf("❌ Erro ao conectar PostgreSQL: %v\n", err)
+		return
+	}
+
+	if err := db.Ping(); err != nil {
+		fmt.Printf("❌ Erro ao pingar PostgreSQL: %v\n", err)
+		return
+	}
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	c.DB = db
+	fmt.Println("✅ PostgreSQL conectado (Go)")
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func (c *BaileysClient) GetContactsDB(instance string) ([]map[string]interface{}, error) {
+	if c.DB == nil {
+		return nil, errors.New("banco de dados não conectado")
+	}
+
+	rows, err := c.DB.Query(`
+		SELECT jid, nome, criado_em 
+		FROM contatos 
+		WHERE instance = $1 
+		ORDER BY nome ASC
+	`, instance)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var jid, nome string
+		var criadoEm time.Time
+		if err := rows.Scan(&jid, &nome, &criadoEm); err != nil {
+			continue
+		}
+		result = append(result, map[string]interface{}{
+			"jid":       jid,
+			"nome":      nome,
+			"criado_em": criadoEm,
+		})
+	}
+
+	return result, nil
+}
+
+func (c *BaileysClient) GetGroupsDB(instance string) ([]map[string]interface{}, error) {
+	if c.DB == nil {
+		return nil, errors.New("banco de dados não conectado")
+	}
+
+	rows, err := c.DB.Query(`
+		SELECT jid, nome, criado_em 
+		FROM grupos 
+		WHERE instance = $1 
+		ORDER BY nome ASC
+	`, instance)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var jid, nome string
+		var criadoEm time.Time
+		if err := rows.Scan(&jid, &nome, &criadoEm); err != nil {
+			continue
+		}
+		result = append(result, map[string]interface{}{
+			"jid":       jid,
+			"nome":      nome,
+			"criado_em": criadoEm,
+		})
+	}
+
+	return result, nil
+}
+
+func (c *BaileysClient) GetMessagesDB(instance, jid string) ([]map[string]interface{}, error) {
+	if c.DB == nil {
+		return nil, errors.New("banco de dados não conectado")
+	}
+
+	rows, err := c.DB.Query(`
+		SELECT id, tipo, conteudo, criado_em 
+		FROM mensagens 
+		WHERE instance = $1 AND jid = $2 
+		ORDER BY criado_em DESC 
+		LIMIT 100
+	`, instance, jid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var id int
+		var tipo, conteudo string
+		var criadoEm time.Time
+		if err := rows.Scan(&id, &tipo, &conteudo, &criadoEm); err != nil {
+			continue
+		}
+		result = append(result, map[string]interface{}{
+			"id":        id,
+			"tipo":      tipo,
+			"conteudo":  conteudo,
+			"criado_em": criadoEm,
+		})
+	}
+
+	return result, nil
+}
+
+// ============================================
+// FUNÇÕES EXISTENTES (NÃO MODIFICADAS)
+// ============================================
 
 func (c *BaileysClient) Connect(instanceKey string) (<-chan string, error) {
 	qrChan := make(chan string, 1)
@@ -104,8 +257,6 @@ func (c *BaileysClient) Logout(instanceKey string) {
 	c.HTTPClient.Post(c.BaseURL+"/session/logout", "application/json", bytes.NewBuffer(data))
 }
 
-// --- INFO ---
-
 func (c *BaileysClient) GetConnectionInfo(instance string) (map[string]interface{}, error) {
 	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/instance/%s/info", c.BaseURL, instance))
 	if err != nil {
@@ -130,8 +281,6 @@ func (c *BaileysClient) IsConnected(instanceKey string) bool {
 	return info["status"] == "connected"
 }
 
-// --- MENSAGENS ---
-
 func (c *BaileysClient) SendText(instance, number, text string, opts *models.MessageOptions) (string, error) {
 	return c.postRequest("/v1/message/text", map[string]interface{}{
 		"instance": instance, "number": number, "text": text,
@@ -144,7 +293,6 @@ func (c *BaileysClient) SendInteractive(instance, number string, interactive *mo
 	})
 }
 
-// 🔥 Enviar botões nativos
 func (c *BaileysClient) SendButtons(instance, number, message, footer, title string, buttons []map[string]string) (string, error) {
 	return c.postRequest("/v1/message/buttons", map[string]interface{}{
 		"instance": instance,
@@ -156,7 +304,6 @@ func (c *BaileysClient) SendButtons(instance, number, message, footer, title str
 	})
 }
 
-// 🔥 Enviar lista de seleção
 func (c *BaileysClient) SendList(instance, number, title, message, footer, buttonText string, sections []map[string]interface{}) (string, error) {
 	return c.postRequest("/v1/message/list", map[string]interface{}{
 		"instance":   instance,
@@ -169,7 +316,6 @@ func (c *BaileysClient) SendList(instance, number, title, message, footer, butto
 	})
 }
 
-// 🔥 Enviar botão com URL
 func (c *BaileysClient) SendUrlButton(instance, number, message, footer, title, buttonText, url string) (string, error) {
 	return c.postRequest("/v1/message/url-button", map[string]interface{}{
 		"instance":   instance,
@@ -182,7 +328,6 @@ func (c *BaileysClient) SendUrlButton(instance, number, message, footer, title, 
 	})
 }
 
-// 🔥 Enviar botão de copiar
 func (c *BaileysClient) SendCopyButton(instance, number, message, footer, title, buttonText, copyCode string) (string, error) {
 	return c.postRequest("/v1/message/copy-button", map[string]interface{}{
 		"instance":   instance,
@@ -195,7 +340,6 @@ func (c *BaileysClient) SendCopyButton(instance, number, message, footer, title,
 	})
 }
 
-// Buscar mensagens de um chat
 func (c *BaileysClient) GetMessages(instance, jid string) ([]map[string]interface{}, error) {
 	return c.getRequestList(fmt.Sprintf("/v1/messages/%s/%s", instance, jid))
 }
@@ -225,8 +369,6 @@ func (c *BaileysClient) SearchContacts(instance, query string) ([]map[string]int
 	return filtered, nil
 }
 
-// --- Helpers ---
-
 func (c *BaileysClient) postRequest(endpoint string, payload interface{}) (string, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -245,7 +387,6 @@ func (c *BaileysClient) postRequest(endpoint string, payload interface{}) (strin
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
 	
-	// Verifica se tem status de sucesso
 	if status, ok := result["status"].(string); ok && status == "success" {
 		if key, ok := result["key"].(map[string]interface{}); ok {
 			if id, ok := key["id"].(string); ok {
@@ -255,7 +396,6 @@ func (c *BaileysClient) postRequest(endpoint string, payload interface{}) (strin
 		return "sent", nil
 	}
 	
-	// Verifica se tem key.id
 	if key, ok := result["key"].(map[string]interface{}); ok {
 		if id, ok := key["id"].(string); ok {
 			return id, nil
@@ -275,8 +415,6 @@ func (c *BaileysClient) getRequestList(endpoint string) ([]map[string]interface{
 	json.NewDecoder(resp.Body).Decode(&result)
 	return result, nil
 }
-
-// --- Stubs (para compatibilidade) ---
 
 func (c *BaileysClient) SendMedia(instance, number string, media *models.MediaPayload, opts *models.MessageOptions) (string, error) {
 	return "", nil
