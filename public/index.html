@@ -952,11 +952,54 @@
             }
         };
 
+        // 🔥 Carregar mensagens do contato selecionado
+        const loadMessages = async (jid) => {
+            try {
+                const res = await fetch(`${API_URL}/messages/${selectedInstance}/${jid}`, {
+                    headers: { 'apikey': apiKey }
+                });
+                const data = await res.json();
+
+                // Normaliza formato para frontend
+                const msgs = data.map(m => ({
+                    id: m.key?.id,
+                    fromMe: m.key?.fromMe,
+                    text: m.message?.conversation || m.message?.extendedTextMessage?.text || "(mensagem)",
+                    timestamp: (m.messageTimestamp || Date.now()) * 1000
+                }));
+
+                setMessages(msgs);
+
+                // Scroll automático para última mensagem
+                setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 200);
+                
+            } catch (e) {
+                NotificationManager.show("Erro ao carregar mensagens", "error");
+            }
+        };
+
+        // 🔥 selectChat atualizado para carregar histórico automaticamente
         const selectChat = (contact) => {
             setActiveChat(contact);
-            setMessages([]); // Limpa mensagens antigas
-            NotificationManager.show(`Chat aberto: ${contact.name}`, "info");
+            setMessages([]);
+
+            // JID completo
+            const jid = contact.jid.includes("@") ? contact.jid : contact.jid + "@s.whatsapp.net";
+
+            loadMessages(jid); // 🔥 carrega histórico automaticamente
         };
+
+        // 🔥 Atualização automática quando novas mensagens chegam (polling a cada 4s)
+        useEffect(() => {
+            if(!activeChat || !selectedInstance) return;
+
+            const interval = setInterval(() => {
+                const jid = activeChat.jid.includes("@") ? activeChat.jid : activeChat.jid + "@s.whatsapp.net";
+                loadMessages(jid);
+            }, 4000);
+
+            return () => clearInterval(interval);
+        }, [activeChat, selectedInstance]);
 
         const sendMessage = async () => {
             if(!activeChat || !messageText.trim() || !selectedInstance) {
@@ -986,7 +1029,7 @@
                 if(data.status === 'success') {
                     // Adiciona mensagem enviada na tela
                     const newMsg = {
-                        id: data.messageId,
+                        id: Date.now(),
                         text: messageText,
                         fromMe: true,
                         timestamp: Date.now()

@@ -21,25 +21,27 @@ func NewSessionHandler(s *whatsapp.Service) *SessionHandler {
 func (h *SessionHandler) Connect(c *fiber.Ctx) error {
 	instanceKey := c.Params("instance")
 	
+	// Solicita conexão ao Node
 	qrChan, err := h.Service.Client.Connect(instanceKey)
 	
 	if err != nil {
 		if err.Error() == "already_connected" {
 			return c.JSON(fiber.Map{"status": "success", "message": "Already connected", "qrcode": ""})
 		}
-		if err.Error() == "session_restored" {
-			return c.JSON(fiber.Map{"status": "success", "message": "Session restored", "qrcode": ""})
-		}
 		return c.Status(500).JSON(fiber.Map{"status": "error", "message": err.Error()})
 	}
 
 	select {
-	case code := <-qrChan:
-		fmt.Printf("\n>>> QR CODE (%s): %s\n\n", instanceKey, code)
+	case code, ok := <-qrChan:
+		if !ok || code == "" {
+			return c.Status(500).JSON(fiber.Map{"status": "error", "message": "Failed to get QR Code from Node"})
+		}
+		
+		fmt.Printf("\n>>> QR CODE (%s) GERADO <<<\n", instanceKey)
 
 		png, err := qrcode.Encode(code, qrcode.Low, 512)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"status": "error", "message": "Failed to generate QR"})
+			return c.Status(500).JSON(fiber.Map{"status": "error", "message": "Failed to generate QR Image"})
 		}
 
 		qrBase64 := "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
@@ -50,8 +52,9 @@ func (h *SessionHandler) Connect(c *fiber.Ctx) error {
 			"qrcode":   qrBase64,
 		})
 
-	case <-time.After(15 * time.Second):
-		return c.Status(408).JSON(fiber.Map{"status": "error", "message": "Timeout"})
+	// AUMENTADO PARA 45 SEGUNDOS (para aguentar os retries do Node)
+	case <-time.After(45 * time.Second):
+		return c.Status(408).JSON(fiber.Map{"status": "error", "message": "Timeout waiting for QR"})
 	}
 }
 

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"log"
-	
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -30,15 +28,6 @@ func NewServer(cfg *config.Config) *fiber.App {
 	msgHandler := handlers.NewMessageHandler(waService)
 	groupHandler := handlers.NewGroupHandler(waService)
 
-	// Webhook Simples (pode ser expandido)
-	if cfg.WebhookURL != "" {
-		waService.GetEventBus().Subscribe(func(evt whatsapp.Event) {
-			// Envia evento para webhook configurado
-			log.Printf("[WEBHOOK] Enviando evento %s para %s", evt.Type, cfg.WebhookURL)
-			// Aqui você pode fazer um POST HTTP para cfg.WebhookURL com o evt
-		})
-	}
-
 	app.Static("/", "./public")
 
 	v1 := app.Group("/v1")
@@ -55,104 +44,83 @@ func NewServer(cfg *config.Config) *fiber.App {
 		return c.JSON(info)
 	})
 
-	// Pareamento
+	// === PAREAMENTO (CÓDIGO) ===
 	v1.Post("/instance/:instance/pair", func(c *fiber.Ctx) error {
 		type PairReq struct{ Phone string `json:"phone"` }
 		var req PairReq
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
 		}
+
+		// Chama o serviço que chama o Node
 		code, err := waService.PairPhone(c.Params("instance"), req.Phone)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"status": "success", "code": code})
+		
+		return c.JSON(fiber.Map{
+			"status": "success", 
+			"code": code,
+		})
 	})
 
 	// === MENSAGENS ===
 	v1.Post("/message/:instance/text", msgHandler.SendText)
 	v1.Post("/message/:instance/interactive", msgHandler.SendInteractive)
 
+	// 🔥 NOVO: Rota para buscar mensagens de um chat
+	v1.Get("/messages/:instance/:jid", func(c *fiber.Ctx) error {
+		instance := c.Params("instance")
+		jid := c.Params("jid")
+		
+		messages, err := waService.GetMessages(instance, jid)
+		if err != nil {
+			return c.JSON([]interface{}{})
+		}
+		return c.JSON(messages)
+	})
+
 	// === GRUPOS ===
 	v1.Post("/group/:instance/create", groupHandler.Create)
 	v1.Put("/group/:instance/:group_id/update", groupHandler.UpdateParticipants)
 	
-	// NOVA: Listar grupos
 	v1.Get("/group/:instance/list", func(c *fiber.Ctx) error {
 		groups, err := waService.GetGroups(c.Params("instance"))
-		if err != nil {
-			return c.JSON([]interface{}{})
-		}
+		if err != nil { return c.JSON([]interface{}{}) }
 		return c.JSON(groups)
 	})
 
-	// === CHAT: Contatos e Grupos ===
+	// === CHAT ===
 	v1.Get("/chat/:instance/contacts", func(c *fiber.Ctx) error {
 		contacts, err := waService.GetContacts(c.Params("instance"))
-		if err != nil {
-			return c.JSON([]interface{}{})
-		}
+		if err != nil { return c.JSON([]interface{}{}) }
 		return c.JSON(contacts)
 	})
 
-	// NOVA: Buscar contatos
 	v1.Get("/chat/:instance/search", func(c *fiber.Ctx) error {
 		query := c.Query("q")
-		if query == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "Query 'q' obrigatória"})
-		}
-		
+		if query == "" { return c.Status(400).JSON(fiber.Map{"error": "Query required"}) }
 		results, err := waService.SearchContacts(c.Params("instance"), query)
-		if err != nil {
-			return c.JSON([]interface{}{})
-		}
+		if err != nil { return c.JSON([]interface{}{}) }
 		return c.JSON(results)
 	})
 
-	// NOVA: Enviar mensagem via Chat
 	v1.Post("/chat/:instance/send", func(c *fiber.Ctx) error {
-		type ChatSendReq struct {
-			To   string `json:"to"`
-			Text string `json:"text"`
-		}
+		type ChatSendReq struct { To string `json:"to"`; Text string `json:"text"` }
 		var req ChatSendReq
-		if err := c.BodyParser(&req); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
-		}
-
-		msgReq := models.SendMessageRequest{
-			Number: req.To,
-			Type:   "text",
-			Text:   req.Text,
-		}
-		
+		if err := c.BodyParser(&req); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Invalid JSON"}) }
+		msgReq := models.SendMessageRequest{ Number: req.To, Type: "text", Text: req.Text }
 		msgID, err := waService.SendMessage(c.Params("instance"), msgReq)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-
+		if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
 		return c.JSON(fiber.Map{"status": "success", "messageId": msgID})
 	})
 
-	// === CONFIGURAÇÕES ===
 	v1.Post("/settings/:instance/save", func(c *fiber.Ctx) error {
-		// Aqui você pode salvar em banco/arquivo se quiser
-		return c.JSON(fiber.Map{"status": "success", "msg": "Configurações salvas"})
+		return c.JSON(fiber.Map{"status": "success", "msg": "Salvo"})
 	})
 
-	// === ESTATÍSTICAS GLOBAIS ===
-	v1.Get("/stats/global", func(c *fiber.Ctx) error {
-		// Aqui você pode agregar dados de todas as instâncias
-		return c.JSON(fiber.Map{
-			"instances": 0,
-			"messages":  0,
-			"uptime":    "24h",
-		})
-	})
-
-	// Health Check
 	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok", "version": "2.0"})
+		return c.JSON(fiber.Map{"status": "ok", "version": "3.0-baileys"})
 	})
 
 	return app

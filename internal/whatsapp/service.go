@@ -2,7 +2,6 @@ package whatsapp
 
 import (
 	"errors"
-	"regexp"
 	"time"
 
 	"github.com/nexus/gowhats/internal/models"
@@ -41,28 +40,26 @@ func (s *Service) GetInstanceInfo(instanceKey string) (map[string]interface{}, e
 	return s.Client.GetConnectionInfo(instanceKey)
 }
 
-// Buscar Contatos para o Chat
 func (s *Service) GetContacts(instanceKey string) ([]map[string]interface{}, error) {
 	return s.Client.GetContacts(instanceKey)
 }
 
-// NOVA: Buscar Grupos
 func (s *Service) GetGroups(instanceKey string) ([]map[string]interface{}, error) {
 	return s.Client.GetGroups(instanceKey)
 }
 
-// NOVA: Buscar contatos por nome/número
 func (s *Service) SearchContacts(instanceKey, query string) ([]map[string]interface{}, error) {
 	return s.Client.SearchContacts(instanceKey, query)
 }
 
-func (s *Service) PairPhone(instanceKey, phone string) (string, error) {
-	return s.Client.PairPhone(instanceKey, phone)
+// 🔥 NOVO: Buscar mensagens de um chat
+func (s *Service) GetMessages(instanceKey, jid string) ([]map[string]interface{}, error) {
+	return s.Client.GetMessages(instanceKey, jid)
 }
 
-func (s *Service) CheckAntiLink(instanceKey, groupID, sender, messageContent string) bool {
-	linkRegex := regexp.MustCompile(`(http|https):\/\/[^\s]+`)
-	return linkRegex.MatchString(messageContent)
+// Funções placeholder mantidas para compatibilidade com handlers
+func (s *Service) PairPhone(instanceKey, phone string) (string, error) {
+	return s.Client.PairPhone(instanceKey, phone)
 }
 
 func (s *Service) ManageGroup(instanceKey string, action string, req models.GroupActionRequest) error {
@@ -73,7 +70,9 @@ func (s *Service) CreateGroup(instanceKey string, req models.CreateGroupRequest)
 	return s.Client.CreateGroup(instanceKey, req.Subject, req.Participants)
 }
 
-// NOVA: Obter EventBus para webhooks
-func (s *Service) GetEventBus() *EventBus {
-	return s.Client.EventBus
+// EventBus removido pois agora o Node.js gerencia eventos internamente
+// Se precisar de Webhooks, o Node.js deve disparar o POST para seu servidor, 
+// ou o Go pode fazer polling (não recomendado).
+func (s *Service) GetEventBus() interface{} {
+	return nil
 }
