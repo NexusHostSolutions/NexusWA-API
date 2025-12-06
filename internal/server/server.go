@@ -4,135 +4,386 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/nexus/gowhats/config"
-	"github.com/nexus/gowhats/internal/handlers"
-	"github.com/nexus/gowhats/internal/middleware"
-	"github.com/nexus/gowhats/internal/models"
+	"github.com/jmoiron/sqlx"
+	"encoding/json" // <-- Faltava
+
+	// imports reais
 	"github.com/nexus/gowhats/internal/whatsapp"
+	"github.com/nexus/gowhats/internal/handlers"
+	"github.com/nexus/gowhats/internal/models"
 )
 
-func NewServer(cfg *config.Config) *fiber.App {
+type Server struct {
+	app       *fiber.App
+	client    *whatsapp.BaileysClient   // ✔ tipo certo
+	db        *sqlx.DB
+	dbHandler *handlers.DatabaseHandler // ✔ vindo do handlers
+}
+
+func NewServer(db *sqlx.DB) *Server {
 	app := fiber.New(fiber.Config{
-		AppName:   "NexusWA API - Enterprise",
 		BodyLimit: 50 * 1024 * 1024,
 	})
 
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept, apikey",
-	}))
+	app.Use(cors.New())
 	app.Use(logger.New())
 
-	waService := whatsapp.NewService()
-	sessionHandler := handlers.NewSessionHandler(waService)
-	msgHandler := handlers.NewMessageHandler(waService)
-	groupHandler := handlers.NewGroupHandler(waService)
+	client := whatsapp.NewBaileysClient(baileysURL)
+	dbHandler := database.NewDatabaseHandler(db, client)
+
+
+	server := &Server{
+		app:       app,
+		client:    client,
+		db:        db,
+		dbHandler: dbHandler,
+	}
+
+	server.setupRoutes()
+
+	return server
+}
+
+func (s *Server) setupRoutes() {
+	// Rota pública (health check)
+	s.app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
+	// Todas as rotas /v1 requerem autenticação
+	api := s.app.Group("/v1", s.dbHandler.AuthMiddleware)
+
+	// Rota de informações do usuário
+	api.Get("/me", s.dbHandler.GetMe)
+
+	// ============================================
+	// ROTAS DE API KEYS (Super Admin Only)
+	// ============================================
+	apiKeys := api.Group("/api-keys", s.dbHandler.SuperAdminOnly)
+	apiKeys.Get("/", s.dbHandler.ListApiKeys)
+	apiKeys.Post("/", s.dbHandler.CreateApiKey)
+	apiKeys.Put("/:id", s.dbHandler.UpdateApiKey)
+	apiKeys.Delete("/:id", s.dbHandler.DeleteApiKey)
+
+	// ============================================
+	// ROTAS DE INSTÂNCIAS
+	// ============================================
+	api.Get("/instances", s.dbHandler.ListInstances)
+	api.Post("/instances", s.dbHandler.SuperAdminOnly, s.dbHandler.CreateInstance)
+	api.Delete("/instances/:name", s.dbHandler.SuperAdminOnly, s.dbHandler.DeleteInstance)
+
+	// ============================================
+	// ROTAS DE INSTÂNCIA ESPECÍFICA
+	// ============================================
+	instance := api.Group("/instance/:instance", s.dbHandler.InstanceAccessMiddleware)
 	
-	// 🆕 Handler de Banco de Dados
-	dbHandler := handlers.NewDatabaseHandler(waService)
-
-	app.Static("/", "./public")
-
-	v1 := app.Group("/v1")
-	v1.Use(middleware.Protected(cfg))
-
-	// === INSTÂNCIA ===
-	v1.Post("/instance/:instance/connect", sessionHandler.Connect)
-	v1.Post("/instance/:instance/logout", sessionHandler.Logout)
-	v1.Get("/instance/:instance/info", func(c *fiber.Ctx) error {
-		info, err := waService.GetInstanceInfo(c.Params("instance"))
+	instance.Get("/info", func(c *fiber.Ctx) error {
+		instName := c.Params("instance")
+		info, err := s.client.GetInstanceInfo(instName)
 		if err != nil {
-			return c.JSON(fiber.Map{"status": "disconnected", "error": err.Error()})
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(info)
 	})
 
-	// === PAREAMENTO ===
-	v1.Post("/instance/:instance/pair", func(c *fiber.Ctx) error {
-		type PairReq struct{ Phone string `json:"phone"` }
-		var req PairReq
-		if err := c.BodyParser(&req); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+	instance.Get("/sync-status", func(c *fiber.Ctx) error {
+		instName := c.Params("instance")
+		status, err := s.client.GetSyncStatus(instName)
+		if err != nil {
+			return c.JSON(fiber.Map{"syncing": false, "completed": false})
 		}
+		return c.JSON(status)
+	})
 
-		code, err := waService.PairPhone(c.Params("instance"), req.Phone)
+	instance.Post("/sync", func(c *fiber.Ctx) error {
+		instName := c.Params("instance")
+		err := s.client.TriggerSync(instName)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		
-		return c.JSON(fiber.Map{
-			"status": "success", 
-			"code": code,
-		})
+		return c.JSON(fiber.Map{"status": "started"})
 	})
 
-	// === MENSAGENS ===
-	v1.Post("/message/:instance/text", msgHandler.SendText)
-	v1.Post("/message/:instance/interactive", msgHandler.SendInteractive)
+	// ============================================
+	// ROTAS DE BANCO DE DADOS
+	// ============================================
+	db := api.Group("/db")
+	db.Get("/contacts/:instance", s.dbHandler.InstanceAccessMiddleware, s.dbHandler.GetContacts)
+	db.Get("/groups/:instance", s.dbHandler.InstanceAccessMiddleware, s.dbHandler.GetGroups)
+	db.Get("/stats/:instance", s.dbHandler.InstanceAccessMiddleware, s.dbHandler.GetStats)
 
-	v1.Get("/messages/:instance/:jid", func(c *fiber.Ctx) error {
-		instance := c.Params("instance")
-		jid := c.Params("jid")
-		
-		messages, err := waService.GetMessages(instance, jid)
+	// ============================================
+	// ROTAS DE CONTATOS E GRUPOS (via Node.js)
+	// ============================================
+	api.Get("/contacts/:instance", s.dbHandler.InstanceAccessMiddleware, func(c *fiber.Ctx) error {
+		instName := c.Params("instance")
+		contacts, err := s.client.GetContacts(instName)
 		if err != nil {
 			return c.JSON([]interface{}{})
 		}
-		return c.JSON(messages)
-	})
-
-	// === GRUPOS ===
-	v1.Post("/group/:instance/create", groupHandler.Create)
-	v1.Put("/group/:instance/:group_id/update", groupHandler.UpdateParticipants)
-	
-	v1.Get("/group/:instance/list", func(c *fiber.Ctx) error {
-		groups, err := waService.GetGroups(c.Params("instance"))
-		if err != nil { return c.JSON([]interface{}{}) }
-		return c.JSON(groups)
-	})
-
-	// === CHAT ===
-	v1.Get("/chat/:instance/contacts", func(c *fiber.Ctx) error {
-		contacts, err := waService.GetContacts(c.Params("instance"))
-		if err != nil { return c.JSON([]interface{}{}) }
 		return c.JSON(contacts)
 	})
 
-	v1.Get("/chat/:instance/search", func(c *fiber.Ctx) error {
-		query := c.Query("q")
-		if query == "" { return c.Status(400).JSON(fiber.Map{"error": "Query required"}) }
-		results, err := waService.SearchContacts(c.Params("instance"), query)
-		if err != nil { return c.JSON([]interface{}{}) }
-		return c.JSON(results)
-	})
-
-	v1.Post("/chat/:instance/send", func(c *fiber.Ctx) error {
-		type ChatSendReq struct { To string `json:"to"`; Text string `json:"text"` }
-		var req ChatSendReq
-		if err := c.BodyParser(&req); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Invalid JSON"}) }
-		msgReq := models.SendMessageRequest{ Number: req.To, Type: "text", Text: req.Text }
-		msgID, err := waService.SendMessage(c.Params("instance"), msgReq)
-		if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
-		return c.JSON(fiber.Map{"status": "success", "messageId": msgID})
-	})
-
-	v1.Post("/settings/:instance/save", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "success", "msg": "Salvo"})
+	api.Get("/groups/:instance", s.dbHandler.InstanceAccessMiddleware, func(c *fiber.Ctx) error {
+		instName := c.Params("instance")
+		groups, err := s.client.GetGroups(instName)
+		if err != nil {
+			return c.JSON([]interface{}{})
+		}
+		return c.JSON(groups)
 	})
 
 	// ============================================
-	// 🆕 ROTAS DE BANCO DE DADOS (NOVAS)
+	// ROTAS DE MENSAGENS
 	// ============================================
-	
-	v1.Get("/db/contacts/:instance", dbHandler.GetContacts)
-	v1.Get("/db/groups/:instance", dbHandler.GetGroups)
-	v1.Get("/db/messages/:instance/:jid", dbHandler.GetMessages)
+	message := api.Group("/message")
 
-	// ============================================
+	message.Post("/text", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
 
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok", "version": "3.0-baileys"})
+		// Verifica acesso à instância
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.SendText(
+	    body["instance"].(string),
+    	body["number"].(string),
+    	body["text"].(string),
+    	nil,
+		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
 	})
 
-	return app
+	message.Post("/buttons", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.SendButtons(
+    		body["instance"].(string),
+    		body["number"].(string),
+    		body["message"].(string),
+    		body["footer"].(string),
+    		body["title"].(string),
+    		body["buttons"].([]map[string]string),
+		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	message.Post("/list", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.SendList(
+	    	body["instance"].(string),
+    		body["number"].(string),
+    		body["title"].(string),
+    		body["message"].(string),
+    		body["footer"].(string),
+    		body["buttonText"].(string),
+    		body["sections"].([]map[string]interface{}),
+		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	message.Post("/url-button", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.SendUrlButton(
+    		body["instance"].(string),
+    		body["number"].(string),
+    		body["message"].(string),
+    		body["footer"].(string),
+    		body["title"].(string),
+    		body["buttonText"].(string),
+    		body["url"].(string),
+	)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	message.Post("/copy-button", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.SendCopyButton(
+    		body["instance"].(string),
+    		body["number"].(string),
+    		body["message"].(string),
+    		body["footer"].(string),
+    		body["title"].(string),
+    		body["buttonText"].(string),
+    		body["copyCode"].(string),
+	)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	message.Post("/interactive", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		interactive := &models.InteractivePayload{}
+			json.Unmarshal(c.Body(), &interactive)
+
+	result, err := s.client.SendInteractive(
+    	body["instance"].(string),
+    	body["number"].(string),
+    	interactive,
+    	nil,
+		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	// ============================================
+	// ROTAS DE SESSÃO (proxy para Node.js)
+	// ============================================
+	session := s.app.Group("/session", s.dbHandler.AuthMiddleware)
+
+	session.Post("/start", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.StartSession(body)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	session.Post("/pair-code", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.RequestPairCode(body)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	session.Post("/logout", func(c *fiber.Ctx) error {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "JSON inválido"})
+		}
+
+		instName, _ := body["instance"].(string)
+		if !s.checkInstanceAccess(c, instName) {
+			return c.Status(403).JSON(fiber.Map{"error": "Sem permissão para esta instância"})
+		}
+
+		result, err := s.client.Logout(body)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(result)
+	})
+
+	// Arquivos estáticos
+	s.app.Static("/", "./public")
+}
+
+func (s *Server) checkInstanceAccess(c *fiber.Ctx, instName string) bool {
+	if instName == "" {
+		return true
+	}
+
+	isSuperAdmin, _ := c.Locals("isSuperAdmin").(bool)
+	if isSuperAdmin {
+		return true
+	}
+
+	apiKey, ok := c.Locals("apiKey").(*models.ApiKey)
+	if !ok {
+		return false
+	}
+
+	for _, inst := range apiKey.InstanciasPermitidas {
+		if inst == instName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Server) Listen(addr string) error {
+	return s.app.Listen(addr)
 }

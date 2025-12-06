@@ -24,31 +24,30 @@
         .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
         .fade-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        
-        /* Notificação estilo WhatsApp */
         .wa-notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            padding: 16px;
-            min-width: 300px;
-            z-index: 9999;
+            position: fixed; top: 20px; right: 20px; background: white;
+            border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            padding: 16px; min-width: 300px; z-index: 9999;
             animation: slideIn 0.3s ease-out;
         }
-        .dark .wa-notification {
-            background: #2a3942;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-        @keyframes slideIn {
-            from { transform: translateX(400px); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
+        .dark .wa-notification { background: #2a3942; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         .wa-notification.success { border-left: 4px solid #25d366; }
         .wa-notification.error { border-left: 4px solid #f44336; }
         .wa-notification.info { border-left: 4px solid #2196F3; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-pulse-slow { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes progressStripes {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 0; }
+        }
+        .progress-striped {
+            background-image: linear-gradient(45deg, rgba(255,255,255,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.15) 75%, transparent 75%, transparent);
+            background-size: 40px 40px;
+            animation: progressStripes 1s linear infinite;
+        }
+        .badge-admin { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .badge-user { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-900 dark:bg-dark-bg dark:text-dark-text transition-colors duration-300">
@@ -56,84 +55,60 @@
 <div id="notifications"></div>
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
-    const API_URL = "http://localhost:8082/v1";
-    const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => (c == 'x' ? Math.random() * 16 | 0 : (Math.random() * 16 | 0) & 0x3 | 0x8).toString(16));
+    const API_URL = "http://localhost:3001";
 
-    // === SISTEMA DE NOTIFICAÇÕES ESTILO WHATSAPP ===
     const NotificationManager = {
         show: (message, type = 'info', duration = 4000) => {
             const container = document.getElementById('notifications');
             const notif = document.createElement('div');
             notif.className = `wa-notification ${type}`;
-            
             const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
             const color = type === 'success' ? '#25d366' : type === 'error' ? '#f44336' : '#2196F3';
-            
-            notif.innerHTML = `
-                <div class="flex items-start gap-3">
-                    <div style="background: ${color}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-                        ${icon}
-                    </div>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-900 dark:text-white">${message}</p>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${new Date().toLocaleTimeString('pt-BR')}</p>
-                    </div>
-                </div>
-            `;
-            
+            notif.innerHTML = `<div class="flex items-start gap-3"><div style="background: ${color}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">${icon}</div><div class="flex-1"><p class="font-medium text-gray-900 dark:text-white">${message}</p><p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${new Date().toLocaleTimeString('pt-BR')}</p></div></div>`;
             container.appendChild(notif);
-            
-            setTimeout(() => {
-                notif.style.animation = 'slideIn 0.3s ease-out reverse';
-                setTimeout(() => notif.remove(), 300);
-            }, duration);
+            setTimeout(() => { notif.style.animation = 'slideIn 0.3s ease-out reverse'; setTimeout(() => notif.remove(), 300); }, duration);
         }
     };
 
-    // --- COMPONENTES UI ---
-    
-    // CORREÇÃO APLICADA AQUI: Adicionado onClick no container pai e stopPropagation no filho
-    const Modal = ({ isOpen, title, onClose, children }) => {
+    // ============================================
+    // COMPONENTES BASE
+    // ============================================
+
+    const Modal = ({ isOpen, title, onClose, children, canClose = true, size = 'md' }) => {
         if (!isOpen) return null;
+        const sizeClass = size === 'lg' ? 'max-w-2xl' : size === 'xl' ? 'max-w-4xl' : 'max-w-md';
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in" onClick={onClose}>
-                <div 
-                    className="bg-white dark:bg-dark-panel rounded-xl shadow-2xl max-w-md w-full border border-gray-200 dark:border-gray-700 relative overflow-hidden" 
-                    onClick={(e) => e.stopPropagation()}
-                >
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in" onClick={canClose ? onClose : undefined}>
+                <div className={`bg-white dark:bg-dark-panel rounded-xl shadow-2xl ${sizeClass} w-full border border-gray-200 dark:border-gray-700 relative overflow-hidden max-h-[90vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-between items-center p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                         <h3 className="font-bold text-lg dark:text-white">{title}</h3>
-                        <button onClick={onClose} className="text-gray-400 hover:text-red-500"><i className="ph-bold ph-x text-lg"></i></button>
+                        {canClose && <button onClick={onClose} className="text-gray-400 hover:text-red-500"><i className="ph-bold ph-x text-lg"></i></button>}
                     </div>
-                    <div className="p-6">{children}</div>
+                    <div className="p-6 overflow-y-auto">{children}</div>
                 </div>
             </div>
         );
     };
 
-    const Toggle = ({ label, checked, onChange }) => (
+    const Toggle = ({ label, checked, onChange, disabled = false }) => (
         <div className="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700 last:border-0">
             <span className="text-sm font-medium dark:text-gray-200">{label}</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+            <label className={`relative inline-flex items-center ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => !disabled && onChange(e.target.checked)} disabled={disabled} />
                 <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
             </label>
         </div>
     );
 
-    // === MODAL DE CONFIRMAÇÃO CUSTOMIZADO ===
     const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", type = "warning" }) => {
         if (!isOpen) return null;
-        
         const colors = {
             warning: { bg: 'bg-orange-50 dark:bg-orange-900/20', icon: 'text-orange-600', button: 'bg-orange-600 hover:bg-orange-700' },
             danger: { bg: 'bg-red-50 dark:bg-red-900/20', icon: 'text-red-600', button: 'bg-red-600 hover:bg-red-700' },
             success: { bg: 'bg-green-50 dark:bg-green-900/20', icon: 'text-green-600', button: 'bg-green-600 hover:bg-green-700' },
             info: { bg: 'bg-blue-50 dark:bg-blue-900/20', icon: 'text-blue-600', button: 'bg-blue-600 hover:bg-blue-700' }
         };
-        
         const color = colors[type];
-        
         return (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in" onClick={onCancel}>
                 <div className="bg-white dark:bg-dark-panel rounded-xl shadow-2xl max-w-md w-full border border-gray-200 dark:border-gray-700 relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -151,546 +126,347 @@
                             </div>
                         </div>
                     </div>
-                    
                     <div className="p-6 flex gap-3">
-                        <button 
-                            onClick={onCancel}
-                            className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-                        >
-                            {cancelText}
-                        </button>
-                        <button 
-                            onClick={onConfirm}
-                            className={`flex-1 text-white px-4 py-3 rounded-lg font-bold transition ${color.button}`}
-                        >
-                            {confirmText}
-                        </button>
+                        <button onClick={onCancel} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition">{cancelText}</button>
+                        <button onClick={onConfirm} className={`flex-1 text-white px-4 py-3 rounded-lg font-bold transition ${color.button}`}>{confirmText}</button>
                     </div>
                 </div>
             </div>
         );
     };
 
-    // --- PÁGINAS ---
-
-    const SettingsPage = ({ apiKey }) => {
-        const [config, setConfig] = useState({ 
-            rejectCalls: false, 
-            ignoreGroups: true,  // ✅ MARCADO POR PADRÃO
-            alwaysOnline: false, 
-            syncHistory: false 
-        });
-        
-        const save = async () => {
-            try {
-                await fetch(`${API_URL}/settings/global/save`, { 
-                    method: 'POST', 
-                    headers: { 
-                        'apikey': apiKey,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(config)
-                });
-                NotificationManager.show("Configurações salvas com sucesso!", "success");
-            } catch(e) {
-                NotificationManager.show("Erro ao salvar configurações", "error");
-            }
-        };
-        
+    const SyncModal = ({ isOpen, onClose, instanceName, syncStatus, onMinimize }) => {
+        if (!isOpen) return null;
+        const { syncing, phase, completed, contactsSynced, groupsSynced, dbStats, error } = syncStatus || {};
         return (
-            <div className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow fade-in">
-                <h3 className="text-lg font-bold mb-4 dark:text-white flex items-center gap-2">
-                    <i className="ph-bold ph-gear text-2xl"></i>
-                    Configurações Gerais
-                </h3>
-                <div className="space-y-1">
-                    <Toggle 
-                        label="Rejeitar Chamadas" 
-                        checked={config.rejectCalls} 
-                        onChange={v=>setConfig({...config, rejectCalls:v})} 
-                    />
-                    <Toggle 
-                        label="Ignorar Grupos (Recomendado)" 
-                        checked={config.ignoreGroups} 
-                        onChange={v=>setConfig({...config, ignoreGroups:v})} 
-                    />
-                    <Toggle 
-                        label="Sempre Online" 
-                        checked={config.alwaysOnline} 
-                        onChange={v=>setConfig({...config, alwaysOnline:v})} 
-                    />
-                    <Toggle 
-                        label="Sincronizar Histórico Completo" 
-                        checked={config.syncHistory} 
-                        onChange={v=>setConfig({...config, syncHistory:v})} 
-                    />
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in">
+                <div className="bg-white dark:bg-dark-panel rounded-2xl shadow-2xl max-w-lg w-full border border-gray-200 dark:border-gray-700 relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-gradient-to-r from-green-600 to-green-500 p-6 text-white">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                                    {completed ? <i className="ph-bold ph-check-circle text-3xl"></i> : <i className="ph-bold ph-arrows-clockwise text-3xl animate-spin"></i>}
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-xl">{completed ? 'Sincronização Concluída!' : 'Sincronizando WhatsApp'}</h3>
+                                    <p className="text-green-100 text-sm">{instanceName}</p>
+                                </div>
+                            </div>
+                            {!syncing && <button onClick={onClose} className="text-white/80 hover:text-white"><i className="ph-bold ph-x text-xl"></i></button>}
+                        </div>
+                    </div>
+                    <div className="p-6">
+                        {error ? (
+                            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
+                                <p className="text-red-600 dark:text-red-400 font-medium"><i className="ph-bold ph-warning mr-2"></i>Erro: {error}</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="mb-6">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        {syncing && <i className="ph-bold ph-circle-notch animate-spin text-green-600"></i>}
+                                        <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{phase || (completed ? 'Sincronização finalizada' : 'Aguardando...')}</span>
+                                    </div>
+                                    {syncing && <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-green-500 progress-striped rounded-full transition-all duration-500" style={{width: '100%'}}></div></div>}
+                                </div>
+                                <div className="grid grid-cols-3 gap-4 mb-6">
+                                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center border border-blue-100 dark:border-blue-800">
+                                        <i className="ph-bold ph-users text-2xl text-blue-600 mb-2"></i>
+                                        <p className="text-2xl font-bold text-blue-800 dark:text-blue-300">{dbStats?.contacts || 0}</p>
+                                        <p className="text-xs text-blue-600 font-medium">CONTATOS</p>
+                                    </div>
+                                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 text-center border border-purple-100 dark:border-purple-800">
+                                        <i className="ph-bold ph-users-three text-2xl text-purple-600 mb-2"></i>
+                                        <p className="text-2xl font-bold text-purple-800 dark:text-purple-300">{dbStats?.groups || 0}</p>
+                                        <p className="text-xs text-purple-600 font-medium">GRUPOS</p>
+                                    </div>
+                                    <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center border border-green-100 dark:border-green-800">
+                                        <i className="ph-bold ph-chat-text text-2xl text-green-600 mb-2"></i>
+                                        <p className="text-2xl font-bold text-green-800 dark:text-green-300">{dbStats?.messages || 0}</p>
+                                        <p className="text-xs text-green-600 font-medium">MENSAGENS</p>
+                                    </div>
+                                </div>
+                                {syncing && <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4"><p className="text-sm text-yellow-800 dark:text-yellow-200"><i className="ph-bold ph-info mr-2"></i>A sincronização continuará em segundo plano.</p></div>}
+                                {completed && <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4"><p className="text-sm text-green-800 dark:text-green-200"><i className="ph-bold ph-check-circle mr-2"></i>Todos os dados foram sincronizados!</p></div>}
+                            </>
+                        )}
+                        <div className="flex gap-3">
+                            {syncing ? (
+                                <button onClick={onMinimize || onClose} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-2"><i className="ph-bold ph-arrows-in-simple"></i>Minimizar</button>
+                            ) : (
+                                <button onClick={onClose} className="flex-1 bg-green-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-green-700 transition flex items-center justify-center gap-2"><i className="ph-bold ph-check"></i>{completed ? 'Concluir' : 'Fechar'}</button>
+                            )}
+                        </div>
+                    </div>
                 </div>
-                <button 
-                    onClick={save} 
-                    className="mt-6 bg-green-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-green-700 transition shadow-md flex items-center justify-center gap-2"
-                >
-                    <i className="ph-bold ph-floppy-disk text-xl"></i>
-                    Salvar Alterações
-                </button>
             </div>
         );
     };
+
+    // ============================================
+    // PÁGINA DE CONFIGURAÇÕES
+    // ============================================
+
+    const SettingsPage = ({ apiKey }) => {
+        const [config, setConfig] = useState({ rejectCalls: false, ignoreGroups: true, alwaysOnline: false, syncHistory: false });
+        const save = async () => {
+            try {
+                NotificationManager.show("Configurações salvas!", "success");
+            } catch(e) { NotificationManager.show("Erro ao salvar", "error"); }
+        };
+        return (
+            <div className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow fade-in">
+                <h3 className="text-lg font-bold mb-4 dark:text-white flex items-center gap-2"><i className="ph-bold ph-gear text-2xl"></i>Configurações Gerais</h3>
+                <div className="space-y-1">
+                    <Toggle label="Rejeitar Chamadas" checked={config.rejectCalls} onChange={v=>setConfig({...config, rejectCalls:v})} />
+                    <Toggle label="Ignorar Grupos (Recomendado)" checked={config.ignoreGroups} onChange={v=>setConfig({...config, ignoreGroups:v})} />
+                    <Toggle label="Sempre Online" checked={config.alwaysOnline} onChange={v=>setConfig({...config, alwaysOnline:v})} />
+                    <Toggle label="Sincronizar Histórico Completo" checked={config.syncHistory} onChange={v=>setConfig({...config, syncHistory:v})} />
+                </div>
+                <button onClick={save} className="mt-6 bg-green-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-green-700 transition shadow-md flex items-center justify-center gap-2"><i className="ph-bold ph-floppy-disk text-xl"></i>Salvar Alterações</button>
+            </div>
+        );
+    };
+
+    // ============================================
+    // PÁGINA DE EVENTOS/WEBHOOKS
+    // ============================================
 
     const EventsPage = ({ apiKey }) => {
         const [webhookURL, setWebhookURL] = useState('');
         const [webhookEnabled, setWebhookEnabled] = useState(false);
         const [websocketEnabled, setWebsocketEnabled] = useState(false);
         const [saving, setSaving] = useState(false);
-
-        // Carrega configurações salvas
-        useEffect(() => {
-            const saved = localStorage.getItem('nexus_webhook_config');
-            if(saved) {
-                const config = JSON.parse(saved);
-                setWebhookURL(config.url || '');
-                setWebhookEnabled(config.enabled || false);
-                setWebsocketEnabled(config.websocket || false);
-            }
-        }, []);
-
+        useEffect(() => { const saved = localStorage.getItem('nexus_webhook_config'); if(saved) { const config = JSON.parse(saved); setWebhookURL(config.url || ''); setWebhookEnabled(config.enabled || false); setWebsocketEnabled(config.websocket || false); } }, []);
         const saveWebhook = async () => {
-            if(webhookEnabled && !webhookURL.trim()) {
-                NotificationManager.show("Digite uma URL válida para o webhook", "error");
-                return;
-            }
-
+            if(webhookEnabled && !webhookURL.trim()) { NotificationManager.show("Digite uma URL válida", "error"); return; }
             setSaving(true);
-            try {
-                const config = {
-                    url: webhookURL,
-                    enabled: webhookEnabled,
-                    websocket: websocketEnabled
-                };
-
-                // Salva localmente
-                localStorage.setItem('nexus_webhook_config', JSON.stringify(config));
-
-                // Envia para o backend (você pode implementar um endpoint real depois)
-                await fetch(`${API_URL}/settings/webhook/save`, { 
-                    method: 'POST',
-                    headers: { 
-                        'apikey': apiKey,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(config)
-                }).catch(() => {}); // Ignora erro se endpoint não existir ainda
-
-                NotificationManager.show("Webhook configurado com sucesso!", "success");
-            } catch(e) {
-                NotificationManager.show("Erro ao salvar webhook", "error");
-            } finally {
-                setSaving(false);
-            }
+            try { const config = { url: webhookURL, enabled: webhookEnabled, websocket: websocketEnabled }; localStorage.setItem('nexus_webhook_config', JSON.stringify(config)); NotificationManager.show("Webhook configurado!", "success"); } catch(e) { NotificationManager.show("Erro ao salvar", "error"); } finally { setSaving(false); }
         };
-
         return (
             <div className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow fade-in">
-                <h3 className="text-lg font-bold mb-4 text-purple-600 flex items-center gap-2">
-                    <i className="ph-fill ph-broadcast text-2xl"></i> 
-                    Webhooks & Eventos
-                </h3>
-                
+                <h3 className="text-lg font-bold mb-4 text-purple-600 flex items-center gap-2"><i className="ph-fill ph-broadcast text-2xl"></i>Webhooks & Eventos</h3>
                 <div className="mb-4">
-                    <label className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400 block mb-2">
-                        URL do Webhook
-                    </label>
-                    <input 
-                        type="url" 
-                        value={webhookURL}
-                        onChange={(e) => setWebhookURL(e.target.value)}
-                        className="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none" 
-                        placeholder="https://seu-sistema.com/webhook" 
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                        Cole aqui a URL que receberá os eventos do WhatsApp
-                    </p>
+                    <label className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400 block mb-2">URL do Webhook</label>
+                    <input type="url" value={webhookURL} onChange={(e) => setWebhookURL(e.target.value)} className="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-600 dark:text-white" placeholder="https://seu-sistema.com/webhook" />
                 </div>
-
                 <div className="space-y-3 mb-4">
-                    <Toggle 
-                        label="Ativar Webhook" 
-                        checked={webhookEnabled} 
-                        onChange={setWebhookEnabled} 
-                    />
-                    <Toggle 
-                        label="Ativar WebSocket (Tempo Real)" 
-                        checked={websocketEnabled} 
-                        onChange={setWebsocketEnabled} 
-                    />
+                    <Toggle label="Ativar Webhook" checked={webhookEnabled} onChange={setWebhookEnabled} />
+                    <Toggle label="Ativar WebSocket" checked={websocketEnabled} onChange={setWebsocketEnabled} />
                 </div>
-
-                <button 
-                    onClick={saveWebhook}
-                    disabled={saving}
-                    className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                    {saving ? (
-                        <>
-                            <i className="ph-bold ph-circle-notch animate-spin"></i>
-                            Salvando...
-                        </>
-                    ) : (
-                        <>
-                            <i className="ph-bold ph-floppy-disk"></i>
-                            Salvar Webhook
-                        </>
-                    )}
-                </button>
-
-                {/* Logs de eventos */}
-                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
-                    <h4 className="text-sm font-bold mb-2 dark:text-white">Status do Webhook</h4>
-                    <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${webhookEnabled && webhookURL ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                        <span className="text-sm text-gray-600 dark:text-gray-300">
-                            {webhookEnabled && webhookURL ? 'Ativo e configurado' : 'Inativo'}
-                        </span>
-                    </div>
-                </div>
+                <button onClick={saveWebhook} disabled={saving} className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2">{saving ? <><i className="ph-bold ph-circle-notch animate-spin"></i>Salvando...</> : <><i className="ph-bold ph-floppy-disk"></i>Salvar Webhook</>}</button>
             </div>
         );
     };
 
+    // ============================================
+    // PÁGINA DE INTEGRAÇÕES
+    // ============================================
+
     const IntegrationsPage = () => {
         const [selectedIntegration, setSelectedIntegration] = useState(null);
-        const [integrations, setIntegrations] = useState({
-            typebot: { enabled: false, url: '', config: '' },
-            chatwoot: { enabled: false, accountId: '', token: '', url: '' },
-            openai: { enabled: false, apiKey: '', model: 'gpt-4' },
-            n8n: { enabled: false, webhookUrl: '' },
-            dify: { enabled: false, apiKey: '', url: '' },
-            flowise: { enabled: false, apiKey: '', url: '' }
-        });
-
-        useEffect(() => {
-            const saved = localStorage.getItem('nexus_integrations');
-            if(saved) {
-                setIntegrations(JSON.parse(saved));
-            }
-        }, []);
-
-        const openIntegrationModal = (integration) => {
-            setSelectedIntegration(integration);
-        };
-
-        const closeModal = () => {
-            setSelectedIntegration(null);
-        };
-
-        const saveIntegration = (name, config) => {
-            const updated = {
-                ...integrations,
-                [name]: config
-            };
-            setIntegrations(updated);
-            localStorage.setItem('nexus_integrations', JSON.stringify(updated));
-            NotificationManager.show(`${name.toUpperCase()} configurado com sucesso!`, "success");
-            closeModal();
-        };
-
-        const integrationsList = [
-            { name: 'typebot', icon: '🤖', title: 'Typebot', description: 'Chatbot inteligente' },
-            { name: 'chatwoot', icon: '💬', title: 'Chatwoot', description: 'Atendimento multicanal' },
-            { name: 'openai', icon: '🧠', title: 'OpenAI', description: 'Inteligência artificial' },
-            { name: 'n8n', icon: '⚡', title: 'n8n', description: 'Automação de workflows' },
-            { name: 'dify', icon: '🚀', title: 'Dify', description: 'LLM Application' },
-            { name: 'flowise', icon: '🌊', title: 'Flowise', description: 'LLM Orchestration' }
-        ];
-
+        const [integrations, setIntegrations] = useState({ typebot: { enabled: false, url: '', config: '' }, chatwoot: { enabled: false, accountId: '', token: '', url: '' }, openai: { enabled: false, apiKey: '', model: 'gpt-4' }, n8n: { enabled: false, webhookUrl: '' }, dify: { enabled: false, apiKey: '', url: '' }, flowise: { enabled: false, apiKey: '', url: '' } });
+        useEffect(() => { const saved = localStorage.getItem('nexus_integrations'); if(saved) setIntegrations(JSON.parse(saved)); }, []);
+        const saveIntegration = (name, config) => { const updated = { ...integrations, [name]: config }; setIntegrations(updated); localStorage.setItem('nexus_integrations', JSON.stringify(updated)); NotificationManager.show(`${name.toUpperCase()} configurado!`, "success"); setSelectedIntegration(null); };
+        const integrationsList = [ { name: 'typebot', icon: '🤖', title: 'Typebot', description: 'Chatbot inteligente' }, { name: 'chatwoot', icon: '💬', title: 'Chatwoot', description: 'Atendimento multicanal' }, { name: 'openai', icon: '🧠', title: 'OpenAI', description: 'Inteligência artificial' }, { name: 'n8n', icon: '⚡', title: 'n8n', description: 'Automação de workflows' }, { name: 'dify', icon: '🚀', title: 'Dify', description: 'LLM Application' }, { name: 'flowise', icon: '🌊', title: 'Flowise', description: 'LLM Orchestration' } ];
         return (
             <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 fade-in">
                     {integrationsList.map(int => (
-                        <div 
-                            key={int.name} 
-                            onClick={() => openIntegrationModal(int.name)}
-                            className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 hover:border-green-500 hover:shadow-lg transition cursor-pointer group"
-                        >
-                            <div className="flex justify-between items-start mb-3">
-                                <div className="text-4xl">{int.icon}</div>
-                                <div className={`w-3 h-3 rounded-full ${integrations[int.name]?.enabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                            </div>
+                        <div key={int.name} onClick={() => setSelectedIntegration(int.name)} className="bg-white dark:bg-dark-panel p-6 rounded-xl shadow border border-gray-200 dark:border-gray-700 hover:border-green-500 hover:shadow-lg transition cursor-pointer group">
+                            <div className="flex justify-between items-start mb-3"><div className="text-4xl">{int.icon}</div><div className={`w-3 h-3 rounded-full ${integrations[int.name]?.enabled ? 'bg-green-500' : 'bg-red-500'}`}></div></div>
                             <h4 className="font-bold text-lg dark:text-white mb-1">{int.title}</h4>
                             <p className="text-xs text-gray-500 mb-3">{int.description}</p>
-                            <div className="flex items-center gap-2 text-green-600 group-hover:text-green-700 font-medium text-sm">
-                                <i className="ph-bold ph-gear"></i>
-                                <span>Configurar</span>
-                            </div>
+                            <div className="flex items-center gap-2 text-green-600 group-hover:text-green-700 font-medium text-sm"><i className="ph-bold ph-gear"></i><span>Configurar</span></div>
                         </div>
                     ))}
                 </div>
-
-                {/* Modal de Configuração */}
-                {selectedIntegration && (
-                    <Modal 
-                        isOpen={true} 
-                        title={`Configurar ${selectedIntegration.toUpperCase()}`} 
-                        onClose={closeModal}
-                    >
-                        <IntegrationConfig 
-                            name={selectedIntegration}
-                            config={integrations[selectedIntegration]}
-                            onSave={saveIntegration}
-                            onClose={closeModal}
-                        />
-                    </Modal>
-                )}
+                {selectedIntegration && <Modal isOpen={true} title={`Configurar ${selectedIntegration.toUpperCase()}`} onClose={() => setSelectedIntegration(null)}><IntegrationConfig name={selectedIntegration} config={integrations[selectedIntegration]} onSave={saveIntegration} onClose={() => setSelectedIntegration(null)} /></Modal>}
             </>
         );
     };
 
-    // Componente de Configuração Individual
     const IntegrationConfig = ({ name, config, onSave, onClose }) => {
         const [formData, setFormData] = useState(config);
-
-        const handleSave = () => {
-            if(formData.enabled) {
-                // Validações básicas
-                if(name === 'openai' && !formData.apiKey) {
-                    NotificationManager.show("API Key é obrigatória", "error");
-                    return;
-                }
-                if(name === 'chatwoot' && (!formData.accountId || !formData.token)) {
-                    NotificationManager.show("Account ID e Token são obrigatórios", "error");
-                    return;
-                }
-            }
-            onSave(name, formData);
-        };
-
+        const handleSave = () => { onSave(name, formData); };
         const renderFields = () => {
             switch(name) {
-                case 'typebot':
-                    return (
-                        <>
-                            <input
-                                type="url"
-                                placeholder="URL do Typebot"
-                                value={formData.url || ''}
-                                onChange={(e) => setFormData({...formData, url: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                            <input
-                                type="text"
-                                placeholder="ID da Configuração"
-                                value={formData.config || ''}
-                                onChange={(e) => setFormData({...formData, config: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                        </>
-                    );
-                case 'chatwoot':
-                    return (
-                        <>
-                            <input
-                                type="url"
-                                placeholder="URL do Chatwoot"
-                                value={formData.url || ''}
-                                onChange={(e) => setFormData({...formData, url: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                            <input
-                                type="text"
-                                placeholder="Account ID"
-                                value={formData.accountId || ''}
-                                onChange={(e) => setFormData({...formData, accountId: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                            <input
-                                type="password"
-                                placeholder="Token de Acesso"
-                                value={formData.token || ''}
-                                onChange={(e) => setFormData({...formData, token: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                        </>
-                    );
-                case 'openai':
-                    return (
-                        <>
-                            <input
-                                type="password"
-                                placeholder="API Key do OpenAI"
-                                value={formData.apiKey || ''}
-                                onChange={(e) => setFormData({...formData, apiKey: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                            <select
-                                value={formData.model || 'gpt-4'}
-                                onChange={(e) => setFormData({...formData, model: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            >
-                                <option value="gpt-4">GPT-4</option>
-                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                            </select>
-                        </>
-                    );
-                case 'n8n':
-                    return (
-                        <input
-                            type="url"
-                            placeholder="Webhook URL do n8n"
-                            value={formData.webhookUrl || ''}
-                            onChange={(e) => setFormData({...formData, webhookUrl: e.target.value})}
-                            className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                        />
-                    );
-                case 'dify':
-                case 'flowise':
-                    return (
-                        <>
-                            <input
-                                type="url"
-                                placeholder={`URL do ${name}`}
-                                value={formData.url || ''}
-                                onChange={(e) => setFormData({...formData, url: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                            <input
-                                type="password"
-                                placeholder="API Key"
-                                value={formData.apiKey || ''}
-                                onChange={(e) => setFormData({...formData, apiKey: e.target.value})}
-                                className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"
-                            />
-                        </>
-                    );
-                default:
-                    return null;
+                case 'typebot': return <><input type="url" placeholder="URL do Typebot" value={formData.url || ''} onChange={(e) => setFormData({...formData, url: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /><input type="text" placeholder="ID da Configuração" value={formData.config || ''} onChange={(e) => setFormData({...formData, config: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /></>;
+                case 'chatwoot': return <><input type="url" placeholder="URL do Chatwoot" value={formData.url || ''} onChange={(e) => setFormData({...formData, url: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /><input type="text" placeholder="Account ID" value={formData.accountId || ''} onChange={(e) => setFormData({...formData, accountId: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /><input type="password" placeholder="Token" value={formData.token || ''} onChange={(e) => setFormData({...formData, token: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /></>;
+                case 'openai': return <><input type="password" placeholder="API Key OpenAI" value={formData.apiKey || ''} onChange={(e) => setFormData({...formData, apiKey: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /><select value={formData.model || 'gpt-4'} onChange={(e) => setFormData({...formData, model: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white"><option value="gpt-4">GPT-4</option><option value="gpt-4-turbo">GPT-4 Turbo</option><option value="gpt-3.5-turbo">GPT-3.5 Turbo</option></select></>;
+                case 'n8n': return <input type="url" placeholder="Webhook URL n8n" value={formData.webhookUrl || ''} onChange={(e) => setFormData({...formData, webhookUrl: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" />;
+                default: return <><input type="url" placeholder={`URL do ${name}`} value={formData.url || ''} onChange={(e) => setFormData({...formData, url: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /><input type="password" placeholder="API Key" value={formData.apiKey || ''} onChange={(e) => setFormData({...formData, apiKey: e.target.value})} className="w-full p-3 border rounded mb-3 dark:bg-gray-700 dark:text-white" /></>;
             }
         };
-
         return (
             <div>
-                <div className="mb-4">
-                    <Toggle 
-                        label="Ativar Integração" 
-                        checked={formData.enabled || false} 
-                        onChange={(v) => setFormData({...formData, enabled: v})} 
-                    />
-                </div>
-
-                {formData.enabled && (
-                    <div className="mb-4">
-                        {renderFields()}
-                    </div>
-                )}
-
-                <div className="flex gap-2">
-                    <button 
-                        onClick={handleSave}
-                        className="flex-1 bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700"
-                    >
-                        Salvar
-                    </button>
-                    <button 
-                        onClick={onClose}
-                        className="px-6 bg-gray-200 dark:bg-gray-700 py-2 rounded font-bold hover:bg-gray-300 dark:hover:bg-gray-600"
-                    >
-                        Cancelar
-                    </button>
-                </div>
+                <div className="mb-4"><Toggle label="Ativar Integração" checked={formData.enabled || false} onChange={(v) => setFormData({...formData, enabled: v})} /></div>
+                {formData.enabled && <div className="mb-4">{renderFields()}</div>}
+                <div className="flex gap-2"><button onClick={handleSave} className="flex-1 bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">Salvar</button><button onClick={onClose} className="px-6 bg-gray-200 dark:bg-gray-700 py-2 rounded font-bold hover:bg-gray-300 dark:hover:bg-gray-600">Cancelar</button></div>
             </div>
         );
     };
 
-    const ApiKeysPage = ({ apiKey, onLogout }) => {
+    // ============================================
+    // PÁGINA DE GERENCIAMENTO DE API KEYS
+    // ============================================
+
+    const ApiKeysPage = ({ apiKey, isSuperAdmin, instances }) => {
         const [keys, setKeys] = useState([]);
+        const [loading, setLoading] = useState(true);
         const [showCreateModal, setShowCreateModal] = useState(false);
-        const [newKeyName, setNewKeyName] = useState('');
-        const [newKeyExpiry, setNewKeyExpiry] = useState('never');
         const [generatedKey, setGeneratedKey] = useState(null);
+        const [editingKey, setEditingKey] = useState(null);
+        
+        // Form state
+        const [newKeyName, setNewKeyName] = useState('');
+        const [newKeyTipo, setNewKeyTipo] = useState('user');
+        const [newKeyValidade, setNewKeyValidade] = useState('never');
+        const [newKeyInstancias, setNewKeyInstancias] = useState([]);
+
+        const loadKeys = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch(`${API_URL}/v1/api-keys`, { headers: { 'apikey': apiKey } });
+                if (res.ok) {
+                    const data = await res.json();
+                    setKeys(data);
+                } else {
+                    NotificationManager.show("Erro ao carregar API Keys", "error");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro de conexão", "error");
+            } finally {
+                setLoading(false);
+            }
+        };
 
         useEffect(() => {
-            loadKeys();
-        }, []);
+            if (isSuperAdmin) loadKeys();
+        }, [isSuperAdmin]);
 
-        const loadKeys = () => {
-            const saved = localStorage.getItem('nexus_api_keys');
-            if(saved) {
-                setKeys(JSON.parse(saved));
-            } else {
-                // Adiciona a key padrão
-                const defaultKey = {
-                    id: generateUUID(),
-                    key: '8msyqcp4o7065sz1nxdg8y69kp7gduijvb0zptz867',
-                    name: 'Chave Master (Padrão)',
-                    created: Date.now(),
-                    expiry: null,
-                    active: true,
-                    isDefault: true
-                };
-                setKeys([defaultKey]);
-                localStorage.setItem('nexus_api_keys', JSON.stringify([defaultKey]));
-            }
-        };
-
-        const createNewKey = () => {
-            if(!newKeyName.trim()) {
-                NotificationManager.show("Digite um nome para a chave", "error");
+        const createKey = async () => {
+            if (!newKeyName.trim()) {
+                NotificationManager.show("Digite um nome para a API Key", "error");
                 return;
             }
 
-            const newKey = {
-                id: generateUUID(),
-                key: generateUUID() + generateUUID().replace(/-/g, ''), // Key longa
-                name: newKeyName,
-                created: Date.now(),
-                expiry: newKeyExpiry === 'never' ? null : Date.now() + (parseInt(newKeyExpiry) * 24 * 60 * 60 * 1000),
-                active: true,
-                isDefault: false
-            };
+            try {
+                const res = await fetch(`${API_URL}/v1/api-keys`, {
+                    method: 'POST',
+                    headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        nome: newKeyName,
+                        tipo: newKeyTipo,
+                        validade: newKeyValidade === 'never' ? null : newKeyValidade,
+                        instanciasPermitidas: newKeyTipo === 'user' ? newKeyInstancias : null
+                    })
+                });
 
-            const updatedKeys = [...keys, newKey];
-            setKeys(updatedKeys);
-            localStorage.setItem('nexus_api_keys', JSON.stringify(updatedKeys));
-            
-            setGeneratedKey(newKey);
-            setNewKeyName('');
-            setNewKeyExpiry('never');
-            setShowCreateModal(false);
-            
-            NotificationManager.show("Nova API Key gerada com sucesso!", "success");
+                if (res.ok) {
+                    const data = await res.json();
+                    setGeneratedKey(data.apiKey);
+                    setShowCreateModal(false);
+                    setNewKeyName('');
+                    setNewKeyTipo('user');
+                    setNewKeyValidade('never');
+                    setNewKeyInstancias([]);
+                    loadKeys();
+                    NotificationManager.show("API Key criada com sucesso!", "success");
+                } else {
+                    const error = await res.json();
+                    NotificationManager.show(error.error || "Erro ao criar", "error");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro de conexão", "error");
+            }
         };
 
-        const toggleKeyStatus = (id) => {
-            const updatedKeys = keys.map(k => 
-                k.id === id ? {...k, active: !k.active} : k
+        const toggleKeyStatus = async (id, ativa) => {
+            try {
+                const res = await fetch(`${API_URL}/v1/api-keys/${id}`, {
+                    method: 'PUT',
+                    headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ativa: !ativa })
+                });
+                if (res.ok) {
+                    loadKeys();
+                    NotificationManager.show(ativa ? "API Key desativada" : "API Key ativada", "success");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro ao atualizar", "error");
+            }
+        };
+
+        const deleteKey = async (id) => {
+            if (!confirm("Tem certeza que deseja excluir esta API Key?")) return;
+            try {
+                const res = await fetch(`${API_URL}/v1/api-keys/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'apikey': apiKey }
+                });
+                if (res.ok) {
+                    loadKeys();
+                    NotificationManager.show("API Key excluída", "success");
+                } else {
+                    const error = await res.json();
+                    NotificationManager.show(error.error || "Erro ao excluir", "error");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro de conexão", "error");
+            }
+        };
+
+        const renewKey = async (id, dias) => {
+            try {
+                const res = await fetch(`${API_URL}/v1/api-keys/${id}`, {
+                    method: 'PUT',
+                    headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ renovarValidade: dias })
+                });
+                if (res.ok) {
+                    loadKeys();
+                    NotificationManager.show(`Validade renovada por ${dias} dias`, "success");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro ao renovar", "error");
+            }
+        };
+
+        const copyToClipboard = (text) => {
+            navigator.clipboard.writeText(text);
+            NotificationManager.show("Copiado!", "success");
+        };
+
+        const formatDate = (date) => {
+            if (!date) return 'Nunca';
+            return new Date(date).toLocaleDateString('pt-BR');
+        };
+
+        const isExpired = (date) => {
+            if (!date) return false;
+            return new Date(date) < new Date();
+        };
+
+        const getValidadeLabel = (val) => {
+            switch(val) {
+                case '30': return '30 dias';
+                case '90': return '90 dias';
+                case '180': return '6 meses';
+                case '365': return '1 ano';
+                default: return 'Nunca expira';
+            }
+        };
+
+        if (!isSuperAdmin) {
+            return (
+                <div className="bg-white dark:bg-dark-panel p-8 rounded-xl shadow text-center fade-in">
+                    <i className="ph-bold ph-lock text-6xl text-gray-300 mb-4"></i>
+                    <h3 className="text-xl font-bold dark:text-white mb-2">Acesso Restrito</h3>
+                    <p className="text-gray-500">Apenas Super Admins podem gerenciar API Keys</p>
+                </div>
             );
-            setKeys(updatedKeys);
-            localStorage.setItem('nexus_api_keys', JSON.stringify(updatedKeys));
-            NotificationManager.show("Status da chave atualizado", "success");
-        };
-
-        const deleteKey = (id) => {
-            const key = keys.find(k => k.id === id);
-            if(key.isDefault) {
-                NotificationManager.show("Não é possível excluir a chave master", "error");
-                return;
-            }
-            
-            if(!confirm(`Deseja realmente excluir a chave "${key.name}"?\n\nEsta ação não pode ser desfeita!`)) return;
-            
-            const updatedKeys = keys.filter(k => k.id !== id);
-            setKeys(updatedKeys);
-            localStorage.setItem('nexus_api_keys', JSON.stringify(updatedKeys));
-            NotificationManager.show("API Key excluída", "success");
-        };
-
-        const copyKey = (key) => {
-            navigator.clipboard.writeText(key);
-            NotificationManager.show("Chave copiada para a área de transferência!", "success");
-        };
-
-        const isExpired = (expiry) => {
-            return expiry && expiry < Date.now();
-        };
+        }
 
         return (
             <div className="fade-in space-y-6">
@@ -698,211 +474,265 @@
                 <div className="flex justify-between items-center">
                     <div>
                         <h2 className="text-2xl font-bold dark:text-white">Gerenciamento de API Keys</h2>
-                        <p className="text-sm text-gray-500 mt-1">Crie e gerencie chaves de acesso para seus clientes</p>
+                        <p className="text-sm text-gray-500 mt-1">Crie e gerencie chaves de acesso com validade e permissões</p>
                     </div>
-                    <button
-                        onClick={() => setShowCreateModal(true)}
-                        className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition flex items-center gap-2"
-                    >
-                        <i className="ph-bold ph-plus text-xl"></i>
-                        Nova API Key
+                    <button onClick={() => setShowCreateModal(true)} className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-700 transition flex items-center gap-2">
+                        <i className="ph-bold ph-plus text-xl"></i>Nova API Key
                     </button>
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700">
-                        <p className="text-sm text-gray-500 mb-1">Total de Chaves</p>
+                        <p className="text-sm text-gray-500 mb-1">Total</p>
                         <p className="text-3xl font-bold dark:text-white">{keys.length}</p>
                     </div>
                     <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700">
-                        <p className="text-sm text-gray-500 mb-1">Ativas</p>
-                        <p className="text-3xl font-bold text-green-600">{keys.filter(k => k.active && !isExpired(k.expiry)).length}</p>
+                        <p className="text-sm text-gray-500 mb-1">Super Admins</p>
+                        <p className="text-3xl font-bold text-purple-600">{keys.filter(k => k.tipo === 'super_admin').length}</p>
                     </div>
                     <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700">
-                        <p className="text-sm text-gray-500 mb-1">Inativas</p>
-                        <p className="text-3xl font-bold text-gray-400">{keys.filter(k => !k.active).length}</p>
+                        <p className="text-sm text-gray-500 mb-1">Usuários</p>
+                        <p className="text-3xl font-bold text-blue-600">{keys.filter(k => k.tipo === 'user').length}</p>
+                    </div>
+                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700">
+                        <p className="text-sm text-gray-500 mb-1">Ativas</p>
+                        <p className="text-3xl font-bold text-green-600">{keys.filter(k => k.ativa && !k.expirada).length}</p>
                     </div>
                     <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700">
                         <p className="text-sm text-gray-500 mb-1">Expiradas</p>
-                        <p className="text-3xl font-bold text-red-600">{keys.filter(k => isExpired(k.expiry)).length}</p>
+                        <p className="text-3xl font-bold text-red-600">{keys.filter(k => k.expirada).length}</p>
                     </div>
                 </div>
 
-                {/* Lista de Keys */}
+                {/* Table */}
                 <div className="bg-white dark:bg-dark-panel rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700">
-                            <tr>
-                                <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Nome</th>
-                                <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">API Key</th>
-                                <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Criada em</th>
-                                <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Expira em</th>
-                                <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Status</th>
-                                <th className="text-right p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {keys.map(key => (
-                                <tr key={key.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium dark:text-white">{key.name}</span>
-                                            {key.isDefault && (
-                                                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">Master</span>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-2">
-                                            <code className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                                                {key.key.substring(0, 20)}...
-                                            </code>
-                                            <button
-                                                onClick={() => copyKey(key.key)}
-                                                className="text-gray-400 hover:text-green-600"
-                                            >
-                                                <i className="ph-bold ph-copy"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-400">
-                                        {new Date(key.created).toLocaleDateString('pt-BR')}
-                                    </td>
-                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-400">
-                                        {key.expiry ? (
-                                            <span className={isExpired(key.expiry) ? 'text-red-600 font-bold' : ''}>
-                                                {new Date(key.expiry).toLocaleDateString('pt-BR')}
+                    {loading ? (
+                        <div className="p-8 text-center">
+                            <i className="ph-bold ph-circle-notch animate-spin text-4xl text-gray-400"></i>
+                            <p className="mt-2 text-gray-500">Carregando...</p>
+                        </div>
+                    ) : (
+                        <table className="w-full">
+                            <thead className="bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700">
+                                <tr>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Nome</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Tipo</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Prefixo</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Instâncias</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Expira</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Último Uso</th>
+                                    <th className="text-left p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Status</th>
+                                    <th className="text-right p-4 text-sm font-bold text-gray-600 dark:text-gray-300">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {keys.map(key => (
+                                    <tr key={key.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                        <td className="p-4">
+                                            <span className="font-medium dark:text-white">{key.nome}</span>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`text-xs px-3 py-1 rounded-full text-white font-bold ${key.tipo === 'super_admin' ? 'badge-admin' : 'badge-user'}`}>
+                                                {key.tipo === 'super_admin' ? '👑 Super Admin' : '👤 Usuário'}
                                             </span>
-                                        ) : (
-                                            <span className="text-green-600">Nunca</span>
-                                        )}
-                                    </td>
-                                    <td className="p-4">
-                                        {isExpired(key.expiry) ? (
-                                            <span className="bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full">Expirada</span>
-                                        ) : key.active ? (
-                                            <span className="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full">Ativa</span>
-                                        ) : (
-                                            <span className="bg-gray-100 text-gray-800 text-xs px-3 py-1 rounded-full">Inativa</span>
-                                        )}
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="flex justify-end gap-2">
-                                            <button
-                                                onClick={() => toggleKeyStatus(key.id)}
-                                                className={`p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${key.active ? 'text-orange-600' : 'text-green-600'}`}
-                                                title={key.active ? 'Desativar' : 'Ativar'}
-                                            >
-                                                <i className={`ph-bold ${key.active ? 'ph-pause' : 'ph-play'}`}></i>
-                                            </button>
-                                            {!key.isDefault && (
-                                                <button
-                                                    onClick={() => deleteKey(key.id)}
-                                                    className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-600"
-                                                    title="Excluir"
-                                                >
+                                        </td>
+                                        <td className="p-4">
+                                            <code className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{key.prefix}...</code>
+                                        </td>
+                                        <td className="p-4 text-sm text-gray-600 dark:text-gray-400">
+                                            {key.tipo === 'super_admin' ? (
+                                                <span className="text-purple-600 font-medium">Todas</span>
+                                            ) : key.instanciasPermitidas?.length > 0 ? (
+                                                <span>{key.instanciasPermitidas.length} instância(s)</span>
+                                            ) : (
+                                                <span className="text-orange-600">Nenhuma</span>
+                                            )}
+                                        </td>
+                                        <td className="p-4 text-sm">
+                                            <span className={key.expirada ? 'text-red-600 font-bold' : 'text-gray-600 dark:text-gray-400'}>
+                                                {formatDate(key.expiraEm)}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-sm text-gray-600 dark:text-gray-400">
+                                            {key.ultimoUso ? formatDate(key.ultimoUso) : 'Nunca'}
+                                        </td>
+                                        <td className="p-4">
+                                            {key.expirada ? (
+                                                <span className="bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full font-medium">Expirada</span>
+                                            ) : key.ativa ? (
+                                                <span className="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full font-medium">Ativa</span>
+                                            ) : (
+                                                <span className="bg-gray-100 text-gray-800 text-xs px-3 py-1 rounded-full font-medium">Inativa</span>
+                                            )}
+                                        </td>
+                                        <td className="p-4">
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => toggleKeyStatus(key.id, key.ativa)} className={`p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${key.ativa ? 'text-orange-600' : 'text-green-600'}`} title={key.ativa ? 'Desativar' : 'Ativar'}>
+                                                    <i className={`ph-bold ${key.ativa ? 'ph-pause' : 'ph-play'}`}></i>
+                                                </button>
+                                                {key.expiraEm && (
+                                                    <div className="relative group">
+                                                        <button className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-blue-600" title="Renovar">
+                                                            <i className="ph-bold ph-clock-clockwise"></i>
+                                                        </button>
+                                                        <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg hidden group-hover:block z-10">
+                                                            <button onClick={() => renewKey(key.id, 30)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">+30 dias</button>
+                                                            <button onClick={() => renewKey(key.id, 90)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">+90 dias</button>
+                                                            <button onClick={() => renewKey(key.id, 180)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">+6 meses</button>
+                                                            <button onClick={() => renewKey(key.id, 365)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">+1 ano</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <button onClick={() => deleteKey(key.id)} className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-600" title="Excluir">
                                                     <i className="ph-bold ph-trash"></i>
                                                 </button>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
 
-                {/* Modal de Criar Nova Key */}
-                <Modal isOpen={showCreateModal} title="Criar Nova API Key" onClose={() => setShowCreateModal(false)}>
+                {/* Modal Criar */}
+                <Modal isOpen={showCreateModal} title="Criar Nova API Key" onClose={() => setShowCreateModal(false)} size="lg">
                     <div className="space-y-4">
                         <div>
-                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">
-                                Nome da Chave
-                            </label>
-                            <input
-                                type="text"
-                                value={newKeyName}
-                                onChange={(e) => setNewKeyName(e.target.value)}
-                                placeholder="Ex: Cliente XYZ, Produção, Desenvolvimento..."
-                                className="w-full p-3 border rounded dark:bg-gray-700 dark:text-white"
-                            />
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Nome *</label>
+                            <input type="text" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="Ex: Cliente ABC, Bot Vendas" className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:text-white" />
                         </div>
 
                         <div>
-                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">
-                                Validade
-                            </label>
-                            <select
-                                value={newKeyExpiry}
-                                onChange={(e) => setNewKeyExpiry(e.target.value)}
-                                className="w-full p-3 border rounded dark:bg-gray-700 dark:text-white"
-                            >
-                                <option value="never">Nunca expira</option>
-                                <option value="30">30 dias</option>
-                                <option value="90">90 dias</option>
-                                <option value="180">180 dias</option>
-                                <option value="365">1 ano</option>
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Tipo de Usuário *</label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={() => setNewKeyTipo('user')} className={`p-4 rounded-lg border-2 transition ${newKeyTipo === 'user' ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full badge-user flex items-center justify-center text-white text-xl">👤</div>
+                                        <div className="text-left">
+                                            <p className="font-bold dark:text-white">Usuário Normal</p>
+                                            <p className="text-xs text-gray-500">Acesso limitado às instâncias permitidas</p>
+                                        </div>
+                                    </div>
+                                </button>
+                                <button onClick={() => setNewKeyTipo('super_admin')} className={`p-4 rounded-lg border-2 transition ${newKeyTipo === 'super_admin' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full badge-admin flex items-center justify-center text-white text-xl">👑</div>
+                                        <div className="text-left">
+                                            <p className="font-bold dark:text-white">Super Admin</p>
+                                            <p className="text-xs text-gray-500">Acesso total ao sistema</p>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Validade</label>
+                            <select value={newKeyValidade} onChange={(e) => setNewKeyValidade(e.target.value)} className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:text-white">
+                                <option value="never">🔓 Nunca expira</option>
+                                <option value="30">📅 30 dias</option>
+                                <option value="90">📅 90 dias</option>
+                                <option value="180">📅 6 meses</option>
+                                <option value="365">📅 1 ano</option>
                             </select>
                         </div>
 
-                        <button
-                            onClick={createNewKey}
-                            className="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700"
-                        >
+                        {newKeyTipo === 'user' && (
+                            <div>
+                                <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Instâncias Permitidas</label>
+                                {instances.length === 0 ? (
+                                    <p className="text-sm text-orange-600 bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg">
+                                        <i className="ph-bold ph-warning mr-2"></i>
+                                        Nenhuma instância disponível. Crie instâncias primeiro.
+                                    </p>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-lg dark:border-gray-700">
+                                        {instances.map(inst => (
+                                            <label key={inst.name} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                                                <input type="checkbox" checked={newKeyInstancias.includes(inst.name)} onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setNewKeyInstancias([...newKeyInstancias, inst.name]);
+                                                    } else {
+                                                        setNewKeyInstancias(newKeyInstancias.filter(n => n !== inst.name));
+                                                    }
+                                                }} className="w-4 h-4 rounded border-gray-300" />
+                                                <span className="text-sm dark:text-white">{inst.name}</span>
+                                                <span className={`w-2 h-2 rounded-full ${inst.status === 'connected' ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                            <p className="text-sm text-blue-800 dark:text-blue-200">
+                                <i className="ph-bold ph-info mr-2"></i>
+                                <strong>Importante:</strong> A API Key completa será mostrada apenas uma vez após a criação. Guarde-a em local seguro!
+                            </p>
+                        </div>
+
+                        <button onClick={createKey} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition flex items-center justify-center gap-2">
+                            <i className="ph-bold ph-key"></i>
                             Gerar API Key
                         </button>
                     </div>
                 </Modal>
 
-                {/* Modal de Key Gerada */}
-                <Modal 
-                    isOpen={!!generatedKey} 
-                    title="✅ API Key Gerada com Sucesso!" 
-                    onClose={() => setGeneratedKey(null)}
-                >
+                {/* Modal Key Gerada */}
+                <Modal isOpen={!!generatedKey} title="✅ API Key Criada!" onClose={() => setGeneratedKey(null)} canClose={false}>
                     <div className="space-y-4">
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                            <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                                ⚠️ <strong>IMPORTANTE:</strong> Copie esta chave agora! Por segurança, ela não será exibida novamente.
+                            <p className="text-sm text-yellow-800 dark:text-yellow-200 font-bold">
+                                ⚠️ ATENÇÃO: Esta é a ÚNICA vez que você verá a API Key completa!
                             </p>
                         </div>
 
                         <div>
-                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">
-                                Nome
-                            </label>
-                            <p className="text-lg font-bold dark:text-white">{generatedKey?.name}</p>
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Nome</label>
+                            <p className="text-lg font-bold dark:text-white">{generatedKey?.nome}</p>
                         </div>
 
                         <div>
-                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">
-                                API Key
-                            </label>
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Tipo</label>
+                            <span className={`text-xs px-3 py-1 rounded-full text-white font-bold ${generatedKey?.tipo === 'super_admin' ? 'badge-admin' : 'badge-user'}`}>
+                                {generatedKey?.tipo === 'super_admin' ? '👑 Super Admin' : '👤 Usuário'}
+                            </span>
+                        </div>
+
+                        <div>
+                            <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">API Key</label>
                             <div className="flex gap-2">
-                                <code className="flex-1 bg-gray-100 dark:bg-gray-800 p-3 rounded text-sm break-all">
+                                <code className="flex-1 bg-gray-100 dark:bg-gray-800 p-3 rounded-lg text-sm break-all font-mono border dark:border-gray-700">
                                     {generatedKey?.key}
                                 </code>
-                                <button
-                                    onClick={() => copyKey(generatedKey?.key)}
-                                    className="bg-green-600 text-white px-4 rounded hover:bg-green-700"
-                                >
+                                <button onClick={() => copyToClipboard(generatedKey?.key)} className="bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 flex items-center gap-2">
                                     <i className="ph-bold ph-copy"></i>
                                 </button>
                             </div>
                         </div>
 
-                        <button
-                            onClick={() => setGeneratedKey(null)}
-                            className="w-full bg-gray-600 text-white py-3 rounded font-bold hover:bg-gray-700"
-                        >
-                            Fechar
+                        {generatedKey?.expiraEm && (
+                            <div>
+                                <label className="text-sm font-bold text-gray-600 dark:text-gray-300 block mb-2">Expira em</label>
+                                <p className="dark:text-white">{formatDate(generatedKey.expiraEm)}</p>
+                            </div>
+                        )}
+
+                        <button onClick={() => setGeneratedKey(null)} className="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700 transition">
+                            Entendi, já copiei a key
                         </button>
                     </div>
                 </Modal>
             </div>
         );
     };
+
+    // ============================================
+    // PÁGINA DE CHAT
+    // ============================================
 
     const ChatPage = ({ apiKey, instances }) => {
         const [contacts, setContacts] = useState([]);
@@ -918,485 +748,141 @@
         const loadContacts = async (instName) => {
             if(!instName) return;
             setSelectedInstance(instName);
-            setActiveChat(null); // Limpa chat ativo
-            
+            setActiveChat(null);
             try {
-                const res = await fetch(`${API_URL}/chat/${instName}/contacts`, { 
-                    headers: { 'apikey': apiKey } 
-                });
+                const res = await fetch(`${API_URL}/v1/contacts/${instName}`, { headers: { 'apikey': apiKey } });
                 const data = await res.json();
                 const sortedContacts = Array.isArray(data) ? data.sort((a,b)=>a.name.localeCompare(b.name)) : [];
                 setContacts(sortedContacts);
                 NotificationManager.show(`${sortedContacts.length} contatos carregados`, "success");
-            } catch(e) {
-                NotificationManager.show("Erro ao carregar contatos", "error");
-                setContacts([]);
-            }
+            } catch(e) { NotificationManager.show("Erro ao carregar contatos", "error"); setContacts([]); }
         };
 
-        const searchContacts = async () => {
-            if(!selectedInstance || !searchQuery.trim()) {
-                NotificationManager.show("Digite algo para buscar", "info");
-                return;
-            }
-            
-            try {
-                const res = await fetch(`${API_URL}/chat/${selectedInstance}/search?q=${encodeURIComponent(searchQuery)}`, {
-                    headers: { 'apikey': apiKey }
-                });
-                const data = await res.json();
-                setContacts(Array.isArray(data) ? data : []);
-                NotificationManager.show(`${data.length || 0} resultados encontrados`, "success");
-            } catch(e) {
-                NotificationManager.show("Erro na busca", "error");
-            }
-        };
-
-        // 🔥 Carregar mensagens do contato selecionado
         const loadMessages = async (jid) => {
             try {
-                const res = await fetch(`${API_URL}/messages/${selectedInstance}/${jid}`, {
-                    headers: { 'apikey': apiKey }
-                });
+                const res = await fetch(`${API_URL}/v1/messages/${selectedInstance}/${jid}`, { headers: { 'apikey': apiKey } });
                 const data = await res.json();
-
-                // Normaliza formato para frontend
-                const msgs = data.map(m => ({
-                    id: m.key?.id,
-                    fromMe: m.key?.fromMe,
-                    text: m.message?.conversation || m.message?.extendedTextMessage?.text || "(mensagem)",
-                    timestamp: (m.messageTimestamp || Date.now()) * 1000
-                }));
-
+                const msgs = data.map(m => ({ id: m.key?.id, fromMe: m.key?.fromMe, text: m.message?.conversation || m.message?.extendedTextMessage?.text || "(mensagem)", timestamp: (m.messageTimestamp || Date.now()) * 1000 }));
                 setMessages(msgs);
-
-                // Scroll automático para última mensagem
                 setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 200);
-                
-            } catch (e) {
-                NotificationManager.show("Erro ao carregar mensagens", "error");
-            }
+            } catch (e) { }
         };
 
-        // 🔥 selectChat atualizado para carregar histórico automaticamente
-        const selectChat = (contact) => {
-            setActiveChat(contact);
-            setMessages([]);
-
-            // JID completo
-            const jid = contact.jid.includes("@") ? contact.jid : contact.jid + "@s.whatsapp.net";
-
-            loadMessages(jid); // 🔥 carrega histórico automaticamente
-        };
-
-        // 🔥 Atualização automática quando novas mensagens chegam (polling a cada 4s)
-        useEffect(() => {
-            if(!activeChat || !selectedInstance) return;
-
-            const interval = setInterval(() => {
-                const jid = activeChat.jid.includes("@") ? activeChat.jid : activeChat.jid + "@s.whatsapp.net";
-                loadMessages(jid);
-            }, 4000);
-
-            return () => clearInterval(interval);
-        }, [activeChat, selectedInstance]);
+        const selectChat = (contact) => { setActiveChat(contact); setMessages([]); const jid = contact.jid.includes("@") ? contact.jid : contact.jid + "@s.whatsapp.net"; loadMessages(jid); };
 
         const sendMessage = async () => {
-            if(!activeChat || !messageText.trim() || !selectedInstance) {
-                NotificationManager.show("Selecione um contato e digite uma mensagem", "error");
-                return;
-            }
-            
+            if(!activeChat || !messageText.trim() || !selectedInstance) { NotificationManager.show("Selecione um contato e digite uma mensagem", "error"); return; }
             setSending(true);
             try {
-                // Remove o @s.whatsapp.net ou @g.us se existir
                 const cleanNumber = activeChat.jid.split('@')[0];
-                
-                const res = await fetch(`${API_URL}/message/${selectedInstance}/text`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': apiKey
-                    },
-                    body: JSON.stringify({
-                        number: cleanNumber,
-                        text: messageText
-                    })
-                });
-                
+                const res = await fetch(`${API_URL}/v1/message/text`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': apiKey }, body: JSON.stringify({ instance: selectedInstance, number: cleanNumber, text: messageText }) });
                 const data = await res.json();
-                
-                if(data.status === 'success') {
-                    // Adiciona mensagem enviada na tela
-                    const newMsg = {
-                        id: Date.now(),
-                        text: messageText,
-                        fromMe: true,
-                        timestamp: Date.now()
-                    };
-                    setMessages([...messages, newMsg]);
-                    setMessageText('');
-                    NotificationManager.show("Mensagem enviada!", "success");
-                    
-                    // Scroll para o final
-                    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-                } else {
-                    NotificationManager.show(data.error || "Erro ao enviar", "error");
-                }
-            } catch(e) {
-                console.error("Erro:", e);
-                NotificationManager.show("Falha no envio: " + e.message, "error");
-            } finally {
-                setSending(false);
-            }
+                if(data.status === 'success') { const newMsg = { id: Date.now(), text: messageText, fromMe: true, timestamp: Date.now() }; setMessages([...messages, newMsg]); setMessageText(''); NotificationManager.show("Mensagem enviada!", "success"); } else { NotificationManager.show(data.error || "Erro ao enviar", "error"); }
+            } catch(e) { NotificationManager.show("Falha no envio", "error"); } finally { setSending(false); }
         };
 
-        const handleKeyPress = (e) => {
-            if(e.key === 'Enter' && !e.shiftKey && !sending) {
-                e.preventDefault();
-                sendMessage();
-            }
-        };
-
-        const filtered = contacts.filter(c => {
-            if(filter === 'all') return true;
-            if(filter === 'group') return c.is_group;
-            return !c.is_group;
-        });
+        const handleKeyPress = (e) => { if(e.key === 'Enter' && !e.shiftKey && !sending) { e.preventDefault(); sendMessage(); } };
+        const filtered = contacts.filter(c => { if(filter === 'all') return true; if(filter === 'group') return c.is_group; return !c.is_group; });
 
         return (
             <div className="flex h-[calc(100vh-8rem)] bg-white dark:bg-dark-panel rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden fade-in">
-                {/* SIDEBAR DE CONTATOS */}
                 <div className="w-1/3 border-r dark:border-gray-700 flex flex-col">
                     <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                        <select 
-                            onChange={(e) => loadContacts(e.target.value)} 
-                            className="w-full p-2 mb-3 rounded border dark:bg-gray-700 dark:text-white"
-                            value={selectedInstance || ''}
-                        >
+                        <select onChange={(e) => loadContacts(e.target.value)} className="w-full p-2 mb-3 rounded border dark:bg-gray-700 dark:text-white" value={selectedInstance || ''}>
                             <option value="">Selecione Instância...</option>
-                            {instances.filter(i => i.status === 'connected').map(i => (
-                                <option key={i.name} value={i.name}>{i.name} ({i.pushName || 'Sem nome'})</option>
-                            ))}
+                            {instances.filter(i => i.status === 'connected').map(i => <option key={i.name} value={i.name}>{i.name} ({i.pushName || 'Sem nome'})</option>)}
                         </select>
-                        
-                        {/* BUSCA */}
-                        <div className="flex gap-2 mb-3">
-                            <input
-                                type="text"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && searchContacts()}
-                                placeholder="Buscar contato..."
-                                className="flex-1 p-2 text-sm rounded border dark:bg-gray-700 dark:text-white"
-                            />
-                            <button
-                                onClick={searchContacts}
-                                className="bg-green-600 text-white px-3 rounded hover:bg-green-700"
-                                disabled={!selectedInstance}
-                            >
-                                <i className="ph-bold ph-magnifying-glass"></i>
-                            </button>
-                        </div>
-
-                        {/* FILTROS */}
                         <div className="flex gap-2">
-                            {['all', 'user', 'group'].map(t => (
-                                <button 
-                                    key={t} 
-                                    onClick={()=>setFilter(t)} 
-                                    className={`flex-1 text-xs py-1 rounded capitalize ${filter===t?'bg-green-100 text-green-800 font-bold dark:bg-green-900/30':'bg-gray-200 dark:bg-gray-700 dark:text-white'}`}
-                                >
-                                    {t === 'all' ? 'Todos' : t === 'user' ? 'Usuários' : 'Grupos'}
-                                </button>
-                            ))}
+                            {['all', 'user', 'group'].map(t => <button key={t} onClick={()=>setFilter(t)} className={`flex-1 text-xs py-1 rounded capitalize ${filter===t?'bg-green-100 text-green-800 font-bold dark:bg-green-900/30':'bg-gray-200 dark:bg-gray-700 dark:text-white'}`}>{t === 'all' ? 'Todos' : t === 'user' ? 'Usuários' : 'Grupos'}</button>)}
                         </div>
                     </div>
-                    
-                    {/* LISTA DE CONTATOS */}
                     <div className="flex-1 overflow-y-auto">
-                        {filtered.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                <i className="ph-bold ph-address-book text-6xl mb-4"></i>
-                                <p className="text-sm">Nenhum contato encontrado</p>
+                        {filtered.length === 0 ? <div className="flex flex-col items-center justify-center h-full text-gray-400"><i className="ph-bold ph-address-book text-6xl mb-4"></i><p className="text-sm">Nenhum contato</p></div> : filtered.map(c => (
+                            <div key={c.jid} onClick={() => selectChat(c)} className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 border-b dark:border-gray-800 transition ${activeChat?.jid===c.jid?'bg-green-50 dark:bg-green-900/20 border-l-4 border-l-green-600':''}`}>
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xl font-bold">{c.is_group ? '👥' : c.name.charAt(0).toUpperCase()}</div>
+                                <div className="flex-1 min-w-0"><h4 className="font-bold text-sm truncate dark:text-white">{c.name}</h4><p className="text-xs text-gray-500 truncate">{c.jid.split('@')[0]}</p></div>
                             </div>
-                        ) : (
-                            filtered.map(c => (
-                                <div 
-                                    key={c.jid} 
-                                    onClick={() => selectChat(c)} 
-                                    className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 border-b dark:border-gray-800 transition ${activeChat?.jid===c.jid?'bg-green-50 dark:bg-green-900/20 border-l-4 border-l-green-600':''}`}
-                                >
-                                    {c.avatar ? (
-                                        <img 
-                                            src={c.avatar} 
-                                            className="w-12 h-12 rounded-full object-cover" 
-                                            alt={c.name}
-                                            onError={(e) => {
-                                                e.target.onerror = null;
-                                                e.target.src = '';
-                                                e.target.style.display = 'none';
-                                                e.target.nextSibling.style.display = 'flex';
-                                            }}
-                                        />
-                                    ) : null}
-                                    <div 
-                                        className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xl font-bold"
-                                        style={{display: c.avatar ? 'none' : 'flex'}}
-                                    >
-                                        {c.is_group ? '👥' : c.name.charAt(0).toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="font-bold text-sm truncate dark:text-white">{c.name}</h4>
-                                        <p className="text-xs text-gray-500 truncate">{c.jid.split('@')[0]}</p>
-                                    </div>
-                                </div>
-                            ))
-                        )}
+                        ))}
                     </div>
                 </div>
-                
-                {/* ÁREA DE CHAT */}
                 <div className="flex-1 flex flex-col bg-[#efeae2] dark:bg-[#0b141a]">
                     {activeChat ? (
                         <>
-                            {/* CABEÇALHO DO CHAT */}
                             <div className="p-4 bg-gray-100 dark:bg-gray-800 flex items-center gap-3 border-b dark:border-gray-700 shadow-sm">
-                                {activeChat.avatar ? (
-                                    <img 
-                                        src={activeChat.avatar} 
-                                        className="w-12 h-12 rounded-full object-cover" 
-                                        alt={activeChat.name}
-                                        onError={(e) => {
-                                            e.target.onerror = null;
-                                            e.target.src = '';
-                                            e.target.style.display = 'none';
-                                            e.target.nextSibling.style.display = 'flex';
-                                        }}
-                                    />
-                                ) : null}
-                                <div 
-                                    className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xl font-bold"
-                                    style={{display: activeChat.avatar ? 'none' : 'flex'}}
-                                >
-                                    {activeChat.is_group ? '👥' : activeChat.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="font-bold dark:text-white">{activeChat.name}</h3>
-                                    <p className="text-xs text-gray-500">{activeChat.jid}</p>
-                                </div>
-                                <button 
-                                    onClick={() => setActiveChat(null)}
-                                    className="text-gray-400 hover:text-red-500"
-                                    title="Fechar chat"
-                                >
-                                    <i className="ph-bold ph-x text-xl"></i>
-                                </button>
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xl font-bold">{activeChat.is_group ? '👥' : activeChat.name.charAt(0).toUpperCase()}</div>
+                                <div className="flex-1"><h3 className="font-bold dark:text-white">{activeChat.name}</h3><p className="text-xs text-gray-500">{activeChat.jid}</p></div>
+                                <button onClick={() => setActiveChat(null)} className="text-gray-400 hover:text-red-500"><i className="ph-bold ph-x text-xl"></i></button>
                             </div>
-                            
-                            {/* MENSAGENS */}
                             <div className="flex-1 p-4 overflow-y-auto">
-                                {messages.length === 0 ? (
-                                    <div className="flex justify-center">
-                                        <span className="text-xs bg-white/50 dark:bg-black/30 px-4 py-2 rounded-full">
-                                            🔒 Suas mensagens são protegidas com criptografia de ponta a ponta
-                                        </span>
-                                    </div>
-                                ) : (
-                                    messages.map((msg, idx) => (
-                                        <div 
-                                            key={idx} 
-                                            className={`flex mb-3 ${msg.fromMe ? 'justify-end' : 'justify-start'}`}
-                                        >
-                                            <div 
-                                                className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                                                    msg.fromMe 
-                                                        ? 'bg-green-100 dark:bg-green-900/30' 
-                                                        : 'bg-white dark:bg-gray-800'
-                                                }`}
-                                            >
-                                                <p className="text-sm dark:text-white">{msg.text}</p>
-                                                <span className="text-[10px] text-gray-500 mt-1 block">
-                                                    {new Date(msg.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
-                                                </span>
-                                            </div>
+                                {messages.map((msg, idx) => (
+                                    <div key={idx} className={`flex mb-3 ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[70%] rounded-lg px-4 py-2 ${msg.fromMe ? 'bg-green-100 dark:bg-green-900/30' : 'bg-white dark:bg-gray-800'}`}>
+                                            <p className="text-sm dark:text-white">{msg.text}</p>
+                                            <span className="text-[10px] text-gray-500 mt-1 block">{new Date(msg.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
                                         </div>
-                                    ))
-                                )}
+                                    </div>
+                                ))}
                                 <div ref={messagesEndRef} />
                             </div>
-                            
-                            {/* INPUT DE MENSAGEM */}
                             <div className="p-3 bg-gray-100 dark:bg-gray-800 flex gap-2 border-t dark:border-gray-700">
-                                <input 
-                                    value={messageText}
-                                    onChange={(e) => setMessageText(e.target.value)}
-                                    onKeyPress={handleKeyPress}
-                                    className="flex-1 p-3 rounded-lg border dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500" 
-                                    placeholder="Digite uma mensagem..." 
-                                    disabled={sending}
-                                />
-                                <button 
-                                    onClick={sendMessage}
-                                    disabled={sending || !messageText.trim()}
-                                    className="bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2"
-                                >
-                                    {sending ? (
-                                        <>
-                                            <i className="ph-bold ph-circle-notch animate-spin"></i>
-                                            <span className="text-sm">Enviando...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <i className="ph-fill ph-paper-plane-right text-xl"></i>
-                                            <span className="text-sm">Enviar</span>
-                                        </>
-                                    )}
-                                </button>
+                                <input value={messageText} onChange={(e) => setMessageText(e.target.value)} onKeyPress={handleKeyPress} className="flex-1 p-3 rounded-lg border dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Digite uma mensagem..." disabled={sending} />
+                                <button onClick={sendMessage} disabled={sending || !messageText.trim()} className="bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 transition"><i className="ph-fill ph-paper-plane-right text-xl"></i></button>
                             </div>
                         </>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center text-gray-400">
-                            <div className="text-center">
-                                <i className="ph-bold ph-chat-text text-8xl mb-4 text-gray-300"></i>
-                                <p className="text-lg font-medium">Selecione um contato para começar</p>
-                                <p className="text-sm text-gray-400 mt-2">Escolha um contato da lista ao lado</p>
-                            </div>
-                        </div>
-                    )}
+                    ) : <div className="flex-1 flex items-center justify-center text-gray-400"><div className="text-center"><i className="ph-bold ph-chat-text text-8xl mb-4 text-gray-300"></i><p className="text-lg font-medium">Selecione um contato</p></div></div>}
                 </div>
             </div>
         );
     };
 
+    // ============================================
+    // CARD DE INSTÂNCIA
+    // ============================================
+
     const InstanceCard = ({ inst, onConnect, onAction, onUpdateInfo }) => {
         const [loading, setLoading] = useState(false);
-        const [showKey, setShowKey] = useState(false);
-        const handle = async (act) => { 
-            setLoading(true); 
-            await onAction(act, inst.name); 
-            setLoading(false); 
-        };
-
-        useEffect(() => { 
-            if(inst.status === 'connected' && (!inst.jid || !inst.stats)) {
-                onUpdateInfo(inst.name); 
-            }
-        }, [inst.status]);
-
+        const handle = async (act) => { setLoading(true); await onAction(act, inst.name); setLoading(false); };
+        useEffect(() => { if(inst.status === 'connected' && !inst.jid) { onUpdateInfo(inst.name); } }, [inst.status]);
         return (
             <div className="bg-white dark:bg-dark-panel rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 fade-in">
                 <div className="flex items-center gap-4 mb-4">
                     <div className="relative">
-                        {inst.avatar ? (
-                            <img 
-                                src={inst.avatar} 
-                                className="w-16 h-16 rounded-full border-2 border-gray-100 object-cover" 
-                                onError={(e)=>{e.target.src='https://via.placeholder.com/150?text=WA'}} 
-                            />
-                        ) : (
-                            <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-3xl">
-                                {inst.status==='connected'?'🤖':'🔌'}
-                            </div>
-                        )}
+                        {inst.avatar ? <img src={inst.avatar} className="w-16 h-16 rounded-full border-2 border-gray-100 object-cover" onError={(e)=>{e.target.src='https://via.placeholder.com/150?text=WA'}} /> : <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-3xl">{inst.status==='connected'?'🤖':'🔌'}</div>}
                         <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${inst.status==='connected'?'bg-green-500':'bg-red-500'}`}></div>
                     </div>
                     <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-lg dark:text-white truncate">{inst.pushName || inst.name}</h3>
-                        <p className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded mt-1 inline-block truncate max-w-full">
-                            {inst.jid ? inst.jid.split('@')[0] : "Desconectado"}
-                        </p>
+                        <p className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded mt-1 inline-block truncate max-w-full">{inst.jid ? inst.jid.split('@')[0] : "Desconectado"}</p>
                     </div>
                 </div>
-
                 {inst.status === 'connected' && (
                     <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded text-center border border-blue-100 dark:border-blue-800">
-                            <p className="text-[10px] font-bold text-blue-600">CONTATOS</p>
-                            <p className="text-lg font-bold text-blue-800 dark:text-blue-300">{inst.stats?.contacts || 0}</p>
-                        </div>
-                        <div className="bg-purple-50 dark:bg-purple-900/20 p-2 rounded text-center border border-purple-100 dark:border-purple-800">
-                            <p className="text-[10px] font-bold text-purple-600">GRUPOS</p>
-                            <p className="text-lg font-bold text-purple-800 dark:text-purple-300">{inst.stats?.groups || 0}</p>
-                        </div>
-                        <div className="bg-green-50 dark:bg-green-900/20 p-2 rounded text-center border border-green-100 dark:border-green-800">
-                            <p className="text-[10px] font-bold text-green-600">ENVIADAS</p>
-                            <p className="text-lg font-bold text-green-800 dark:text-green-300">{inst.stats?.messagesSent || 0}</p>
-                        </div>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded text-center border border-blue-100 dark:border-blue-800"><p className="text-[10px] font-bold text-blue-600">CONTATOS</p><p className="text-lg font-bold text-blue-800 dark:text-blue-300">{inst.stats?.contacts || 0}</p></div>
+                        <div className="bg-purple-50 dark:bg-purple-900/20 p-2 rounded text-center border border-purple-100 dark:border-purple-800"><p className="text-[10px] font-bold text-purple-600">GRUPOS</p><p className="text-lg font-bold text-purple-800 dark:text-purple-300">{inst.stats?.groups || 0}</p></div>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-2 rounded text-center border border-green-100 dark:border-green-800"><p className="text-[10px] font-bold text-green-600">MENSAGENS</p><p className="text-lg font-bold text-green-800 dark:text-green-300">{inst.stats?.messagesSent || 0}</p></div>
                     </div>
                 )}
-
-                <div className="bg-gray-50 dark:bg-gray-800/50 p-2 rounded mb-4 border border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                    <code className="text-xs font-mono text-gray-600 dark:text-gray-300 truncate w-32">
-                        {showKey ? inst.apiKey : "••••••••••••"}
-                    </code>
-                    <div className="flex gap-2">
-                        <button 
-                            onClick={()=>setShowKey(!showKey)} 
-                            className="text-gray-400 hover:text-green-500"
-                        >
-                            <i className={`ph-bold ${showKey?'ph-eye-slash':'ph-eye'}`}></i>
-                        </button>
-                        <button 
-                            onClick={()=>{
-                                navigator.clipboard.writeText(inst.apiKey); 
-                                NotificationManager.show("API Key copiada!", "success");
-                            }} 
-                            className="text-gray-400 hover:text-blue-500"
-                        >
-                            <i className="ph-bold ph-copy"></i>
-                        </button>
-                    </div>
-                </div>
-
                 <div className="grid grid-cols-4 gap-2">
                     {inst.status !== 'connected' ? (
-                        <button 
-                            onClick={() => onConnect(inst.name)} 
-                            disabled={loading} 
-                            className="col-span-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition shadow-sm disabled:opacity-50"
-                        >
-                            {loading ? <i className="ph ph-spinner animate-spin"></i> : <i className="ph-bold ph-qr-code"></i>}
-                            Conectar
-                        </button>
+                        <button onClick={() => onConnect(inst.name)} disabled={loading} className="col-span-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition shadow-sm disabled:opacity-50">{loading ? <i className="ph ph-spinner animate-spin"></i> : <i className="ph-bold ph-qr-code"></i>}Conectar</button>
                     ) : (
                         <>
-                            <button 
-                                onClick={() => handle('refresh')} 
-                                title="Sincronizar" 
-                                className="bg-blue-50 hover:bg-blue-100 text-blue-600 py-2 rounded-lg flex justify-center"
-                            >
-                                <i className={`ph-bold ph-arrows-clockwise ${loading?'animate-spin':''}`}></i>
-                            </button>
-                            <button 
-                                onClick={() => handle('restart')} 
-                                title="Reiniciar" 
-                                className="bg-orange-50 hover:bg-orange-100 text-orange-600 py-2 rounded-lg flex justify-center"
-                            >
-                                <i className="ph-bold ph-lightning"></i>
-                            </button>
-                            <button 
-                                onClick={() => handle('logout')} 
-                                title="Desconectar" 
-                                className="bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-lg flex justify-center"
-                            >
-                                <i className="ph-bold ph-plug"></i>
-                            </button>
+                            <button onClick={() => handle('refresh')} title="Sincronizar" className="bg-blue-50 hover:bg-blue-100 text-blue-600 py-2 rounded-lg flex justify-center"><i className={`ph-bold ph-arrows-clockwise ${loading?'animate-spin':''}`}></i></button>
+                            <button onClick={() => handle('restart')} title="Reiniciar" className="bg-orange-50 hover:bg-orange-100 text-orange-600 py-2 rounded-lg flex justify-center"><i className="ph-bold ph-lightning"></i></button>
+                            <button onClick={() => handle('logout')} title="Desconectar" className="bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-lg flex justify-center"><i className="ph-bold ph-plug"></i></button>
                         </>
                     )}
-                    <button 
-                        onClick={() => handle('delete')} 
-                        title="Excluir" 
-                        className="bg-gray-100 hover:bg-red-500 hover:text-white text-gray-500 py-2 rounded-lg flex justify-center transition"
-                    >
-                        <i className="ph-bold ph-trash"></i>
-                    </button>
+                    <button onClick={() => handle('delete')} title="Excluir" className="bg-gray-100 hover:bg-red-500 hover:text-white text-gray-500 py-2 rounded-lg flex justify-center transition"><i className="ph-bold ph-trash"></i></button>
                 </div>
             </div>
         );
     };
 
-    const Dashboard = ({ apiKey, onLogout }) => {
+    // ============================================
+    // DASHBOARD PRINCIPAL
+    // ============================================
+
+    const Dashboard = ({ apiKey, userInfo, onLogout }) => {
         const [activeTab, setActiveTab] = useState('instances');
         const [instances, setInstances] = useState([]);
         const [modals, setModals] = useState({});
@@ -1405,224 +891,128 @@
         const [phoneInput, setPhoneInput] = useState("");
         const [selectedInst, setSelectedInst] = useState(null);
         const [darkMode, setDarkMode] = useState(false);
+        const [showSyncModal, setShowSyncModal] = useState(false);
+        const [syncStatus, setSyncStatus] = useState({});
+        const [syncInstanceName, setSyncInstanceName] = useState('');
+        const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', type: 'warning', onConfirm: null });
+
+        const isSuperAdmin = userInfo?.isSuperAdmin || false;
 
         useEffect(() => {
-            const saved = localStorage.getItem('nexus_instances_v13');
-            if (saved) setInstances(JSON.parse(saved));
-            if(darkMode) document.documentElement.classList.add('dark'); 
-            else document.documentElement.classList.remove('dark');
+            loadInstances();
+            if(darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark');
         }, [darkMode]);
 
-        useEffect(() => {
-    if(instances.length === 0) return;
-    
-    const checkConnectionStatus = async () => {
-        const connectedInstances = instances.filter(i => i.status === 'connected');
-        
-        for(const inst of connectedInstances) {
+        const loadInstances = async () => {
             try {
-                const res = await fetch(`${API_URL}/instance/${inst.name}/info`, { 
-                    headers: { 'apikey': apiKey } 
-                });
-                
-                if(!res.ok) {
-                    // Erro HTTP, marca como offline
-                    setInstances(prev => prev.map(i => 
-                        i.name === inst.name ? {...i, status: 'disconnected', jid: null, avatar: null} : i
-                    ));
-                    NotificationManager.show(`⚠️ ${inst.name} foi desconectado!`, "error");
-                    continue;
+                const res = await fetch(`${API_URL}/v1/instances`, { headers: { 'apikey': apiKey } });
+                if (res.ok) {
+                    const data = await res.json();
+                    setInstances(data);
                 }
-                
-                const data = await res.json();
-                
-                // Se retornar erro ou disconnected, atualiza
-                if(data.status === 'disconnected' || data.error) {
-                    setInstances(prev => prev.map(i => 
-                        i.name === inst.name ? {...i, status: 'disconnected', jid: null, avatar: null} : i
-                    ));
-                    NotificationManager.show(`⚠️ ${inst.name} foi desconectado!`, "error");
-                }
-            } catch(e) {
-                // Se der erro na requisição, marca como offline
-                console.error(`Erro ao verificar ${inst.name}:`, e);
-                setInstances(prev => prev.map(i => 
-                    i.name === inst.name ? {...i, status: 'disconnected'} : i
-                ));
+            } catch (e) {
+                console.error("Erro ao carregar instâncias:", e);
             }
-        }
-    };
-
-    // Primeira verificação imediata
-    checkConnectionStatus();
-    
-    // Verifica a cada 10 segundos
-    const interval = setInterval(checkConnectionStatus, 10000);
-    
-    return () => clearInterval(interval);
-}, [apiKey]); // ✅ REMOVIDO 'instances' das dependências!
-
-        const saveInstances = (v) => { 
-            setInstances(v); 
-            localStorage.setItem('nexus_instances_v13', JSON.stringify(v)); 
         };
-        
-        const openModal = (t, i) => { 
-            setSelectedInst(i); 
-            setModals({...modals, [t]: true}); 
-        };
-        
+
+        const openModal = (t, i) => { setSelectedInst(i); setModals({...modals, [t]: true}); };
         const closeModal = (t) => setModals({...modals, [t]: false});
 
-        const addInstance = () => {
+        const addInstance = async () => {
             const name = document.getElementById('newInstName').value.replace(/\s+/g, '');
-            if(name && !instances.find(i=>i.name===name)) {
-                saveInstances([...instances, {
-                    name, 
-                    apiKey: generateUUID(), 
-                    status: 'disconnected', 
-                    stats: {contacts:0, groups:0, messagesSent:0}
-                }]);
-                closeModal('add');
-                NotificationManager.show(`Instância "${name}" criada!`, "success");
-            } else {
-                NotificationManager.show("Nome inválido ou já existe", "error");
+            if(!name) { NotificationManager.show("Digite um nome", "error"); return; }
+
+            try {
+                const res = await fetch(`${API_URL}/v1/instances`, {
+                    method: 'POST',
+                    headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                if (res.ok) {
+                    closeModal('add');
+                    loadInstances();
+                    NotificationManager.show(`Instância "${name}" criada!`, "success");
+                } else {
+                    const error = await res.json();
+                    NotificationManager.show(error.error || "Erro ao criar", "error");
+                }
+            } catch (e) {
+                NotificationManager.show("Erro de conexão", "error");
             }
+        };
+
+        const pollSyncStatus = async (instanceName) => {
+            try {
+                const res = await fetch(`${API_URL}/v1/instance/${instanceName}/sync-status`, { headers: { 'apikey': apiKey } });
+                const data = await res.json();
+                setSyncStatus(data);
+                if(data.syncing) { setTimeout(() => pollSyncStatus(instanceName), 2000); }
+            } catch(e) { }
         };
 
         const connectInstance = async (name) => {
-            saveInstances(instances.map(i => i.name === name ? {...i, status: 'connecting'} : i));
+            setInstances(instances.map(i => i.name === name ? {...i, status: 'connecting'} : i));
             NotificationManager.show(`Conectando ${name}...`, "info");
-            
             try {
-                const res = await fetch(`${API_URL}/instance/${name}/connect`, { 
-                    method: 'POST', 
-                    headers: { 'apikey': apiKey } 
-                });
+                const res = await fetch(`${API_URL}/session/start`, { method: 'POST', headers: { 'apikey': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: name }) });
                 const data = await res.json();
-                
-                if (data.status === 'success') {
-                    if (data.qrcode) {
-                        setQrData(data.qrcode);
-                        openModal('qr', { name });
-                        
-                        const poll = setInterval(async () => {
-                            const iRes = await fetch(`${API_URL}/instance/${name}/info`, { 
-                                headers: { 'apikey': apiKey } 
-                            });
-                            const info = await iRes.json();
-                            
-                            if(info.status === 'connected') { 
-                                clearInterval(poll); 
-                                closeModal('qr'); 
-                                updateInfo(name); 
-                                NotificationManager.show(`${name} conectado!`, "success");
-                            }
-                        }, 2000);
-                    } else {
-                        updateInfo(name);
-                    }
+                if (data.qrcode) {
+                    setQrData(data.qrcode);
+                    openModal('qr', { name });
+                    const poll = setInterval(async () => {
+                        const iRes = await fetch(`${API_URL}/v1/instance/${name}/info`, { headers: { 'apikey': apiKey } });
+                        const info = await iRes.json();
+                        if(info.status === 'connected') { 
+                            clearInterval(poll); 
+                            closeModal('qr'); 
+                            loadInstances();
+                            setSyncInstanceName(name);
+                            setShowSyncModal(true);
+                            pollSyncStatus(name);
+                            NotificationManager.show(`${name} conectado!`, "success");
+                        }
+                    }, 2000);
+                } else if (data.status === 'CONNECTED') {
+                    loadInstances();
+                    NotificationManager.show(`${name} já está conectado!`, "success");
                 } else {
-                    NotificationManager.show(data.message || "Erro ao conectar", "error");
-                    saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
+                    NotificationManager.show(data.error || "Erro ao conectar", "error");
+                    loadInstances();
                 }
-            } catch(e) {
-                NotificationManager.show("Erro de conexão", "error");
-                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
-            }
+            } catch(e) { NotificationManager.show("Erro de conexão", "error"); loadInstances(); }
         };
-
-        const updateInfo = async (name) => {
-    try {
-        const res = await fetch(`${API_URL}/instance/${name}/info`, { 
-            headers: { 'apikey': apiKey }  // ✅ ADICIONE ESTA LINHA
-        });
-        const data = await res.json();
-        
-        if (data.status === 'connected') {
-            saveInstances(instances.map(i => i.name === name ? {
-                ...i, 
-                status: 'connected', 
-                jid: data.jid, 
-                avatar: data.avatar, 
-                pushName: data.name, 
-                stats: {
-                    contacts: data.contacts, 
-                    groups: data.groups,
-                    messagesSent: data.messagesSent || 0
-                }
-            } : i));
-        } else {
-            // ✅ ADICIONE: Se não conectado, marca como disconnected
-            saveInstances(instances.map(i => i.name === name ? {
-                ...i,
-                status: 'disconnected'
-            } : i));
-        }
-    } catch(e) {
-        console.error("Erro ao atualizar info:", e);
-        // ✅ ADICIONE: Em caso de erro, marca como disconnected
-        saveInstances(instances.map(i => i.name === name ? {
-            ...i,
-            status: 'disconnected'
-        } : i));
-    }
-};
 
         const handleAction = async (action, name) => {
             if(action === 'delete') {
-                if(!confirm('⚠️ Tem certeza que deseja EXCLUIR esta instância?\n\nEsta ação não pode ser desfeita!')) return;
-                
-                NotificationManager.show("Excluindo instância...", "info");
-                await fetch(`${API_URL}/instance/${name}/logout`, { 
-                    method: 'POST', 
-                    headers: { 'apikey': apiKey } 
-                });
-                saveInstances(instances.filter(i => i.name !== name));
-                NotificationManager.show("Instância excluída com sucesso!", "success");
-                
+                setConfirmModal({ isOpen: true, title: 'Excluir Instância', message: `Tem certeza que deseja EXCLUIR a instância "${name}"?\n\nTodos os dados serão perdidos!`, type: 'danger', onConfirm: async () => { 
+                    setConfirmModal({ ...confirmModal, isOpen: false }); 
+                    await fetch(`${API_URL}/v1/instances/${name}`, { method: 'DELETE', headers: { 'apikey': apiKey } }); 
+                    loadInstances(); 
+                    NotificationManager.show("Instância excluída!", "success"); 
+                } });
             } else if(action === 'logout') {
-                if(!confirm('⚠️ Deseja realmente DESCONECTAR esta instância?\n\nVocê precisará escanear o QR Code novamente.')) return;
-                
-                NotificationManager.show("Desconectando...", "info");
-                await fetch(`${API_URL}/instance/${name}/logout`, { 
-                    method: 'POST', 
-                    headers: { 'apikey': apiKey } 
-                });
-                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected', jid: null, avatar: null} : i));
-                NotificationManager.show(`${name} desconectado com sucesso!`, "success");
-                
-            } else if(action === 'refresh') {
-                NotificationManager.show("Sincronizando...", "info");
-                await updateInfo(name);
-                NotificationManager.show("Sincronização concluída!", "success");
-                
+                setConfirmModal({ isOpen: true, title: 'Desconectar', message: `Deseja desconectar "${name}"?`, type: 'warning', onConfirm: async () => { 
+                    setConfirmModal({ ...confirmModal, isOpen: false }); 
+                    await fetch(`${API_URL}/session/logout`, { method: 'POST', headers: { 'apikey': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: name }) }); 
+                    loadInstances(); 
+                    NotificationManager.show("Desconectado!", "success"); 
+                } });
+            } else if(action === 'refresh') { 
+                loadInstances(); 
+                NotificationManager.show("Atualizado!", "success"); 
             } else if(action === 'restart') {
-                if(!confirm('⚠️ Deseja REINICIAR esta instância?')) return;
-                
-                NotificationManager.show("Reiniciando...", "info");
-                saveInstances(instances.map(i => i.name === name ? {...i, status: 'disconnected'} : i));
-                setTimeout(() => connectInstance(name), 1500);
+                setConfirmModal({ isOpen: true, title: 'Reiniciar', message: `Deseja reiniciar "${name}"?`, type: 'info', onConfirm: async () => { 
+                    setConfirmModal({ ...confirmModal, isOpen: false }); 
+                    await fetch(`${API_URL}/session/logout`, { method: 'POST', headers: { 'apikey': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: name }) }); 
+                    setTimeout(() => connectInstance(name), 1500); 
+                } });
             }
         };
 
         const handlePairing = async () => {
-            const res = await fetch(`${API_URL}/instance/${selectedInst.name}/pair`, {
-                method: 'POST', 
-                headers: { 
-                    'apikey': apiKey, 
-                    'Content-Type': 'application/json' 
-                },
-                body: JSON.stringify({ phone: phoneInput })
-            });
+            const res = await fetch(`${API_URL}/session/pair-code`, { method: 'POST', headers: { 'apikey': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ instance: selectedInst.name, phoneNumber: phoneInput }) });
             const data = await res.json();
-            
-            if(data.code) {
-                setPairCode(data.code);
-                NotificationManager.show("Código gerado!", "success");
-            } else {
-                NotificationManager.show(data.error, "error");
-            }
+            if(data.code) { setPairCode(data.code); NotificationManager.show("Código gerado!", "success"); } else { NotificationManager.show(data.error, "error"); }
         };
 
         const totalContacts = instances.reduce((acc, curr) => acc + (curr.stats?.contacts || 0), 0);
@@ -1630,262 +1020,243 @@
         const totalMessages = instances.reduce((acc, curr) => acc + (curr.stats?.messagesSent || 0), 0);
         const onlineCount = instances.filter(i => i.status === 'connected').length;
 
+        // Tabs disponíveis baseado no tipo de usuário
+        const tabs = isSuperAdmin 
+            ? ['instances', 'chat', 'apikeys', 'settings', 'events', 'integrations']
+            : ['instances', 'chat', 'settings'];
+
         return (
             <div className="flex h-screen overflow-hidden font-sans bg-gray-50 dark:bg-[#0c1317]">
-                {/* Modais */}
+                <ConfirmModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} type={confirmModal.type} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })} />
+                <SyncModal isOpen={showSyncModal} onClose={() => setShowSyncModal(false)} instanceName={syncInstanceName} syncStatus={syncStatus} onMinimize={() => setShowSyncModal(false)} />
+
                 <Modal isOpen={modals.add} title="Nova Instância" onClose={() => closeModal('add')}>
-                    <input 
-                        id="newInstName" 
-                        type="text" 
-                        className="w-full p-3 border rounded mb-4 dark:bg-gray-700 dark:text-white" 
-                        placeholder="Nome da instância" 
-                    />
-                    <button 
-                        onClick={addInstance} 
-                        className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700"
-                    >
-                        Criar Instância
-                    </button>
+                    <input id="newInstName" type="text" className="w-full p-3 border rounded mb-4 dark:bg-gray-700 dark:text-white" placeholder="Nome da instância" />
+                    <button onClick={addInstance} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">Criar Instância</button>
                 </Modal>
 
                 <Modal isOpen={modals.qr} title="Escanear QR Code" onClose={() => closeModal('qr')}>
-                    <div className="flex justify-center mb-4">
-                        <img src={qrData} className="w-64 border-4 border-white shadow-lg rounded" alt="QR Code" />
-                    </div>
-                    <p className="text-center text-sm text-gray-500 mb-4">
-                        Abra o WhatsApp e escaneie o código
-                    </p>
-                    <div className="text-center">
-                        <button 
-                            onClick={() => { closeModal('qr'); openModal('pair', selectedInst); }} 
-                            className="text-blue-500 font-bold hover:underline"
-                        >
-                            Usar Código de Pareamento
-                        </button>
-                    </div>
+                    <div className="flex justify-center mb-4"><img src={qrData} className="w-64 border-4 border-white shadow-lg rounded" alt="QR Code" /></div>
+                    <p className="text-center text-sm text-gray-500 mb-4">Abra o WhatsApp e escaneie o código</p>
+                    <div className="text-center"><button onClick={() => { closeModal('qr'); openModal('pair', selectedInst); }} className="text-blue-500 font-bold hover:underline">Usar Código de Pareamento</button></div>
                 </Modal>
 
                 <Modal isOpen={modals.pair} title="Pareamento" onClose={() => closeModal('pair')}>
                     {!pairCode ? (
-                        <>
-                            <input 
-                                value={phoneInput} 
-                                onChange={e=>setPhoneInput(e.target.value)} 
-                                className="w-full p-3 border rounded mb-4 dark:bg-gray-700 dark:text-white" 
-                                placeholder="5511999999999" 
-                            />
-                            <button 
-                                onClick={handlePairing} 
-                                className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700"
-                            >
-                                Gerar Código
-                            </button>
-                        </>
+                        <><input value={phoneInput} onChange={e=>setPhoneInput(e.target.value)} className="w-full p-3 border rounded mb-4 dark:bg-gray-700 dark:text-white" placeholder="5511999999999" /><button onClick={handlePairing} className="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">Gerar Código</button></>
                     ) : (
-                        <div className="text-center">
-                            <p className="text-sm text-gray-500 mb-4">Digite este código no WhatsApp:</p>
-                            <div className="text-3xl font-mono font-bold p-4 bg-gray-100 dark:bg-gray-800 rounded">
-                                {pairCode}
-                            </div>
-                        </div>
+                        <div className="text-center"><p className="text-sm text-gray-500 mb-4">Digite este código no WhatsApp:</p><div className="text-3xl font-mono font-bold p-4 bg-gray-100 dark:bg-gray-800 rounded">{pairCode}</div></div>
                     )}
                 </Modal>
 
                 {/* Sidebar */}
                 <div className="w-72 bg-white dark:bg-dark-panel border-r border-gray-200 dark:border-gray-800 flex flex-col z-10">
                     <div className="p-6 flex items-center gap-3">
-                        <div className="w-10 h-10 bg-green-600 rounded flex items-center justify-center text-white">
-                            <i className="ph-bold ph-whatsapp-logo text-2xl"></i>
-                        </div>
+                        <div className="w-10 h-10 bg-green-600 rounded flex items-center justify-center text-white"><i className="ph-bold ph-whatsapp-logo text-2xl"></i></div>
                         <span className="font-bold text-xl dark:text-white">NexusWA</span>
+                    </div>
+                    
+                    {/* User Info */}
+                    <div className="px-4 pb-4">
+                        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <div className="flex items-center gap-2">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm ${isSuperAdmin ? 'badge-admin' : 'badge-user'}`}>
+                                    {isSuperAdmin ? '👑' : '👤'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold dark:text-white truncate">{userInfo?.nome || 'Usuário'}</p>
+                                    <p className="text-xs text-gray-500">{isSuperAdmin ? 'Super Admin' : 'Usuário'}</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <nav className="p-4 space-y-2 flex-1">
-                        {['instances', 'chat', 'apikeys', 'settings', 'events', 'integrations'].map(tab => (
-                            <button 
-                                key={tab} 
-                                onClick={() => setActiveTab(tab)} 
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg capitalize transition ${activeTab===tab?'bg-green-50 text-green-700 font-bold dark:bg-green-900/20':'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                            >
-                                <i className={`ph-bold ${
-                                    tab==='instances'?'ph-squares-four':
-                                    tab==='chat'?'ph-chat-circle-text':
-                                    tab==='apikeys'?'ph-key':
-                                    tab==='settings'?'ph-gear':
-                                    tab==='events'?'ph-broadcast':'ph-plugs'
-                                } text-lg`}></i> 
+                        {tabs.map(tab => (
+                            <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg capitalize transition ${activeTab===tab?'bg-green-50 text-green-700 font-bold dark:bg-green-900/20':'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                                <i className={`ph-bold ${tab==='instances'?'ph-squares-four':tab==='chat'?'ph-chat-circle-text':tab==='apikeys'?'ph-key':tab==='settings'?'ph-gear':tab==='events'?'ph-broadcast':'ph-plugs'} text-lg`}></i>
                                 {tab === 'apikeys' ? 'API Keys' : tab}
                             </button>
                         ))}
                     </nav>
-                    
                     <div className="p-4 border-t dark:border-gray-800">
-                        <div className="flex justify-between mb-4">
-                            <span className="dark:text-gray-300 text-sm">Modo Escuro</span>
-                            <button 
-                                onClick={() => setDarkMode(!darkMode)} 
-                                className={`w-10 h-5 rounded-full relative transition ${darkMode ? 'bg-green-600' : 'bg-gray-300'}`}
-                            >
-                                <div className={`w-3 h-3 bg-white rounded absolute top-1 transition-all ${darkMode?'left-6':'left-1'}`}></div>
-                            </button>
-                        </div>
-                        <button 
-                            onClick={onLogout} 
-                            className="w-full text-red-500 font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 py-2 rounded transition"
-                        >
-                            Sair
-                        </button>
+                        <div className="flex justify-between mb-4"><span className="dark:text-gray-300 text-sm">Modo Escuro</span><button onClick={() => setDarkMode(!darkMode)} className={`w-10 h-5 rounded-full relative transition ${darkMode ? 'bg-green-600' : 'bg-gray-300'}`}><div className={`w-3 h-3 bg-white rounded absolute top-1 transition-all ${darkMode?'left-6':'left-1'}`}></div></button></div>
+                        <button onClick={onLogout} className="w-full text-red-500 font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 py-2 rounded transition">Sair</button>
                     </div>
                 </div>
 
+                {/* Main Content */}
                 <div className="flex-1 overflow-y-auto p-8">
                     <div className="max-w-7xl mx-auto pb-10">
                         {activeTab === 'instances' && (
                             <div className="fade-in space-y-8">
-                                {/* STATS */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-2xl">
-                                            <i className="ph-fill ph-whatsapp-logo"></i>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500 text-xs font-bold uppercase">Instâncias</p>
-                                            <h3 className="text-2xl font-bold dark:text-white">
-                                                {instances.length} ({onlineCount} on)
-                                            </h3>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl">
-                                            <i className="ph-fill ph-users"></i>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500 text-xs font-bold uppercase">Contatos</p>
-                                            <h3 className="text-2xl font-bold dark:text-white">{totalContacts}</h3>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-2xl">
-                                            <i className="ph-fill ph-chats-circle"></i>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500 text-xs font-bold uppercase">Grupos</p>
-                                            <h3 className="text-2xl font-bold dark:text-white">{totalGroups}</h3>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-2xl">
-                                            <i className="ph-fill ph-envelope-open"></i>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500 text-xs font-bold uppercase">Mensagens</p>
-                                            <h3 className="text-2xl font-bold dark:text-white">{totalMessages}</h3>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                {/* GRID */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                    <div 
-                                        onClick={() => openModal('add')} 
-                                        className="bg-white dark:bg-dark-panel border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 cursor-pointer transition h-full min-h-[16rem]"
-                                    >
-                                        <i className="ph-bold ph-plus text-3xl"></i>
-                                        <span className="mt-2 font-bold">Nova Instância</span>
-                                    </div>
-                                    
-                                    {instances.map(inst => (
-                                        <InstanceCard 
-                                            key={inst.name} 
-                                            inst={inst} 
-                                            onConnect={connectInstance} 
-                                            onAction={handleAction} 
-                                            onUpdateInfo={updateInfo} 
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {activeTab === 'chat' && <ChatPage apiKey={apiKey} instances={instances} />}
-                        {activeTab === 'settings' && <SettingsPage apiKey={apiKey} />}
-                        {activeTab === 'events' && <EventsPage apiKey={apiKey} />}
-                        {activeTab === 'integrations' && <IntegrationsPage />}
-                         {activeTab === 'apikeys' && <ApiKeysPage apiKey={apiKey} onLogout={onLogout} />}
-                    </div>
-                </div>
-            </div>
-        );
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-whatsapp-logo"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Instâncias</p><h3 className="text-2xl font-bold dark:text-white">{instances.length} ({onlineCount} on)</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-users"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Contatos</p><h3 className="text-2xl font-bold dark:text-white">{totalContacts}</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-2xl"><i className="ph-fill ph-chats-circle"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Grupos</p><h3 className="text-2xl font-bold dark:text-white">{totalGroups}</h3></div></div>
+                                    <div className="bg-white dark:bg-dark-panel p-4 rounded-xl shadow-sm border dark:border-gray-700 flex items-center gap-4"><div className="w-12 h-12 rounded-full bg-orange-100 text-orange-600 flex items-center justify-centertext-2xl"><i className="ph-fill ph-envelope-open"></i></div><div><p className="text-gray-500 text-xs font-bold uppercase">Mensagens</p><h3 className="text-2xl font-bold dark:text-white">{totalMessages}</h3></div></div>
+</div>
+<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+{isSuperAdmin && (
+<div onClick={() => openModal('add')} className="bg-white dark:bg-dark-panel border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 cursor-pointer transition h-full min-h-[16rem]"><i className="ph-bold ph-plus text-3xl"></i><span className="mt-2 font-bold">Nova Instância</span></div>
+)}
+{instances.map(inst => <InstanceCard key={inst.name} inst={inst} onConnect={connectInstance} onAction={handleAction} onUpdateInfo={loadInstances} />)}
+</div>
+</div>
+)}
+{activeTab === 'chat' && <ChatPage apiKey={apiKey} instances={instances} />}
+{activeTab === 'settings' && <SettingsPage apiKey={apiKey} />}
+{activeTab === 'events' && <EventsPage apiKey={apiKey} />}
+{activeTab === 'integrations' && <IntegrationsPage />}
+{activeTab === 'apikeys' && <ApiKeysPage apiKey={apiKey} isSuperAdmin={isSuperAdmin} instances={instances} />}
+</div>
+</div>
+</div>
+);
+}
+
+// ============================================
+// TELA DE LOGIN
+// ============================================
+
+const LoginScreen = ({ onLogin, error }) => {
+    const [key, setKey] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleLogin = async () => {
+        if (!key.trim()) {
+            NotificationManager.show("Digite sua API Key", "error");
+            return;
+        }
+        setLoading(true);
+        await onLogin(key);
+        setLoading(false);
     };
 
-    const LoginScreen = ({ onLogin }) => {
-        const [key, setKey] = useState('');
-        
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-[#0c1317]">
-                <div className="bg-white dark:bg-dark-panel p-8 rounded-lg shadow-lg w-full max-w-md text-center">
-                    <div className="w-16 h-16 bg-green-600 rounded-full mx-auto mb-4 flex items-center justify-center">
-                        <i className="ph-bold ph-whatsapp-logo text-3xl text-white"></i>
-                    </div>
-                    <h2 className="text-2xl font-bold mb-6 dark:text-white">NexusWA Enterprise</h2>
-                    <input 
-                        type="password" 
-                        onChange={e=>setKey(e.target.value)} 
-                        className="w-full p-3 border rounded mb-4 dark:bg-gray-700 dark:text-white" 
-                        placeholder="Chave de Acesso" 
-                    />
-                    <button 
-                        onClick={()=>onLogin(key)} 
-                        className="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition"
-                    >
-                        Entrar
-                    </button>
-                </div>
-            </div>
-        );
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') handleLogin();
     };
 
-    const App = () => {
-        const [auth, setAuth] = useState(false);
-        const [apiKey, setApiKey] = useState('');
-        
-        useEffect(() => { 
-            const s = localStorage.getItem('nexus_apikey'); 
-            if(s) { 
-                setApiKey(s); 
-                setAuth(true); 
-            } 
-        }, []);
-        
-        return (
-            <>
-                {auth ? (
-                    <Dashboard 
-                        apiKey={apiKey} 
-                        onLogout={() => {
-                            localStorage.removeItem('nexus_apikey'); 
-                            setAuth(false);
-                            NotificationManager.show("Até logo!", "info");
-                        }} 
-                    />
-                ) : (
-                    <LoginScreen 
-                        onLogin={(k) => {
-                            setApiKey(k); 
-                            localStorage.setItem('nexus_apikey', k); 
-                            setAuth(true);
-                            NotificationManager.show("Bem-vindo ao NexusWA!", "success");
-                        }} 
-                    />
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-600 to-green-800">
+            <div className="bg-white dark:bg-dark-panel p-8 rounded-2xl shadow-2xl w-full max-w-md text-center">
+                <div className="w-20 h-20 bg-green-600 rounded-full mx-auto mb-6 flex items-center justify-center shadow-lg">
+                    <i className="ph-bold ph-whatsapp-logo text-4xl text-white"></i>
+                </div>
+                <h2 className="text-3xl font-bold mb-2 dark:text-white">NexusWA</h2>
+                <p className="text-gray-500 mb-8">Enterprise WhatsApp Platform</p>
+                
+                {error && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-4">
+                        <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+                    </div>
                 )}
-            </>
-        );
+                
+                <input 
+                    type="password" 
+                    value={key}
+                    onChange={e=>setKey(e.target.value)} 
+                    onKeyPress={handleKeyPress}
+                    className="w-full p-4 border rounded-lg mb-4 dark:bg-gray-700 dark:text-white text-center font-mono" 
+                    placeholder="Cole sua API Key aqui"
+                    disabled={loading}
+                />
+                <button 
+                    onClick={handleLogin} 
+                    disabled={loading}
+                    className="w-full bg-green-600 text-white py-4 rounded-lg font-bold hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                    {loading ? (
+                        <><i className="ph-bold ph-circle-notch animate-spin"></i>Verificando...</>
+                    ) : (
+                        <><i className="ph-bold ph-sign-in"></i>Entrar</>
+                    )}
+                </button>
+
+                <p className="text-xs text-gray-400 mt-6">
+                    Sua API Key foi fornecida pelo administrador do sistema
+                </p>
+            </div>
+        </div>
+    );
+};
+
+// ============================================
+// APP PRINCIPAL
+// ============================================
+
+const App = () => {
+    const [auth, setAuth] = useState(false);
+    const [apiKey, setApiKey] = useState('');
+    const [userInfo, setUserInfo] = useState(null);
+    const [loginError, setLoginError] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const savedKey = localStorage.getItem('nexus_apikey');
+        if (savedKey) {
+            validateAndLogin(savedKey);
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    const validateAndLogin = async (key) => {
+        try {
+            const res = await fetch(`${API_URL}/v1/me`, { headers: { 'apikey': key } });
+            if (res.ok) {
+                const data = await res.json();
+                setApiKey(key);
+                setUserInfo(data);
+                setAuth(true);
+                setLoginError('');
+                localStorage.setItem('nexus_apikey', key);
+                NotificationManager.show(`Bem-vindo, ${data.nome}!`, "success");
+            } else {
+                const error = await res.json();
+                setLoginError(error.error || 'API Key inválida');
+                localStorage.removeItem('nexus_apikey');
+            }
+        } catch (e) {
+            setLoginError('Erro de conexão com o servidor');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    const handleLogin = async (key) => {
+        setLoading(true);
+        await validateAndLogin(key);
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('nexus_apikey');
+        setAuth(false);
+        setApiKey('');
+        setUserInfo(null);
+        NotificationManager.show("Até logo!", "info");
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-600 to-green-800">
+                <div className="text-center text-white">
+                    <i className="ph-bold ph-circle-notch animate-spin text-6xl mb-4"></i>
+                    <p className="text-xl">Carregando...</p>
+                </div>
+            </div>
+        );
+    }
+
+    return auth ? (
+        <Dashboard apiKey={apiKey} userInfo={userInfo} onLogout={handleLogout} />
+    ) : (
+        <LoginScreen onLogin={handleLogin} error={loginError} />
+    );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
 </script>
 </body>
 </html>

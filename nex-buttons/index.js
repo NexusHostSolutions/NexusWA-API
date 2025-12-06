@@ -13,12 +13,12 @@ const express = require('express');
 const fs = require('fs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const crypto = require('crypto');
 
-// 🔥 Importa o helper de botões que FUNCIONA
 const { sendButtons, sendInteractiveMessage } = require('@ryuu-reinzz/button-helper');
 
 // ============================================
-// 🆕 POSTGRESQL - Pool de Conexão
+// POSTGRESQL - Pool de Conexão
 // ============================================
 const { Pool } = require('pg');
 
@@ -33,13 +33,274 @@ const pool = new Pool({
     connectionTimeoutMillis: 2000,
 });
 
-// Testa conexão ao iniciar
 pool.query('SELECT NOW()')
     .then(() => console.log('✅ PostgreSQL conectado!'))
     .catch(err => console.error('❌ Erro PostgreSQL:', err.message));
 
 // ============================================
-// 🆕 FUNÇÕES DE BANCO DE DADOS
+// FUNÇÕES DE HASH E GERAÇÃO DE KEYS
+// ============================================
+
+function hashKey(key) {
+    return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+function generateApiKey(tipo = 'user') {
+    const prefix = tipo === 'super_admin' ? 'nxsa_' : 'nxus_';
+    const randomPart = crypto.randomBytes(24).toString('hex');
+    return `${prefix}${randomPart}`;
+}
+
+function getKeyPrefix(key) {
+    return key.substring(0, 8);
+}
+
+// ============================================
+// FUNÇÕES DE BANCO - API KEYS
+// ============================================
+
+async function createApiKey(nome, tipo = 'user', validadeDias = null, instanciasPermitidas = null) {
+    try {
+        const key = generateApiKey(tipo);
+        const keyHash = hashKey(key);
+        const keyPrefix = getKeyPrefix(key);
+        
+        let expiraEm = null;
+        if (validadeDias) {
+            expiraEm = new Date();
+            expiraEm.setDate(expiraEm.getDate() + validadeDias);
+        }
+
+        const result = await pool.query(`
+            INSERT INTO api_keys (key_hash, key_prefix, nome, tipo, instancias_permitidas, expira_em)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, key_prefix, nome, tipo, ativa, instancias_permitidas, criado_em, expira_em
+        `, [keyHash, keyPrefix, nome, tipo, instanciasPermitidas, expiraEm]);
+
+        return {
+            ...result.rows[0],
+            key: key // Retorna a key em texto apenas na criação!
+        };
+    } catch (err) {
+        console.error('[DB] Erro ao criar API Key:', err.message);
+        return null;
+    }
+}
+
+async function validateApiKey(key) {
+    try {
+        const keyHash = hashKey(key);
+        const result = await pool.query(`
+            SELECT id, key_prefix, nome, tipo, ativa, instancias_permitidas, criado_em, expira_em, ultimo_uso
+            FROM api_keys 
+            WHERE key_hash = $1
+        `, [keyHash]);
+
+        if (result.rows.length === 0) {
+            return { valid: false, error: 'API Key inválida' };
+        }
+
+        const apiKey = result.rows[0];
+
+        // Verifica se está ativa
+        if (!apiKey.ativa) {
+            return { valid: false, error: 'API Key desativada' };
+        }
+
+        // Verifica expiração
+        if (apiKey.expira_em && new Date(apiKey.expira_em) < new Date()) {
+            return { valid: false, error: 'API Key expirada' };
+        }
+
+        // Atualiza último uso e contador
+        await pool.query(`
+            UPDATE api_keys 
+            SET ultimo_uso = NOW(), total_requisicoes = total_requisicoes + 1 
+            WHERE id = $1
+        `, [apiKey.id]);
+
+        return { 
+            valid: true, 
+            apiKey: apiKey,
+            isSuperAdmin: apiKey.tipo === 'super_admin'
+        };
+    } catch (err) {
+        console.error('[DB] Erro ao validar API Key:', err.message);
+        return { valid: false, error: 'Erro interno' };
+    }
+}
+
+async function getApiKeyById(id) {
+    try {
+        const result = await pool.query(`
+            SELECT id, key_prefix, nome, tipo, ativa, instancias_permitidas, criado_em, expira_em, ultimo_uso, total_requisicoes
+            FROM api_keys WHERE id = $1
+        `, [id]);
+        return result.rows[0];
+    } catch (err) {
+        return null;
+    }
+}
+
+async function getAllApiKeys() {
+    try {
+        const result = await pool.query(`
+            SELECT id, key_prefix, nome, tipo, ativa, instancias_permitidas, criado_em, expira_em, ultimo_uso, total_requisicoes
+            FROM api_keys 
+            ORDER BY criado_em DESC
+        `);
+        return result.rows;
+    } catch (err) {
+        return [];
+    }
+}
+
+async function updateApiKey(id, data) {
+    try {
+        const fields = [];
+        const values = [];
+        let idx = 1;
+
+        if (data.nome !== undefined) { fields.push(`nome = $${idx++}`); values.push(data.nome); }
+        if (data.ativa !== undefined) { fields.push(`ativa = $${idx++}`); values.push(data.ativa); }
+        if (data.tipo !== undefined) { fields.push(`tipo = $${idx++}`); values.push(data.tipo); }
+        if (data.instancias_permitidas !== undefined) { fields.push(`instancias_permitidas = $${idx++}`); values.push(data.instancias_permitidas); }
+        if (data.expira_em !== undefined) { fields.push(`expira_em = $${idx++}`); values.push(data.expira_em); }
+
+        if (fields.length === 0) return null;
+
+        values.push(id);
+        const query = `UPDATE api_keys SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
+        const result = await pool.query(query, values);
+        return result.rows[0];
+    } catch (err) {
+        return null;
+    }
+}
+
+async function deleteApiKey(id) {
+    try {
+        await pool.query(`DELETE FROM api_keys WHERE id = $1`, [id]);
+        return true;
+    } catch (err) {
+        return false;
+    }
+}
+
+async function ensureSuperAdminExists() {
+    try {
+        const result = await pool.query(`SELECT id FROM api_keys WHERE tipo = 'super_admin' LIMIT 1`);
+        if (result.rows.length === 0) {
+            console.log('⚠️ Nenhum Super Admin encontrado. Criando...');
+            const admin = await createApiKey('Super Admin Padrão', 'super_admin', null, null);
+            if (admin) {
+                console.log('');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('🔐 SUPER ADMIN API KEY CRIADA - GUARDE COM SEGURANÇA!');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log(`📋 Key: ${admin.key}`);
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('⚠️  Esta key só será mostrada UMA VEZ!');
+                console.log('═══════════════════════════════════════════════════════════');
+                console.log('');
+            }
+        }
+    } catch (err) {
+        console.error('Erro ao verificar Super Admin:', err.message);
+    }
+}
+
+// ============================================
+// FUNÇÕES DE BANCO - INSTÂNCIAS
+// ============================================
+
+async function createInstance(nome, criadoPor = null) {
+    try {
+        const result = await pool.query(`
+            INSERT INTO instancias (nome, criado_por)
+            VALUES ($1, $2)
+            ON CONFLICT (nome) DO UPDATE SET atualizado_em = NOW()
+            RETURNING *
+        `, [nome, criadoPor]);
+        return result.rows[0];
+    } catch (err) {
+        console.error('[DB] Erro ao criar instância:', err.message);
+        return null;
+    }
+}
+
+async function updateInstance(nome, data) {
+    try {
+        const fields = [];
+        const values = [];
+        let idx = 1;
+
+        if (data.status !== undefined) { fields.push(`status = $${idx++}`); values.push(data.status); }
+        if (data.push_name !== undefined) { fields.push(`push_name = $${idx++}`); values.push(data.push_name); }
+        if (data.jid !== undefined) { fields.push(`jid = $${idx++}`); values.push(data.jid); }
+        if (data.avatar !== undefined) { fields.push(`avatar = $${idx++}`); values.push(data.avatar); }
+        if (data.webhook_url !== undefined) { fields.push(`webhook_url = $${idx++}`); values.push(data.webhook_url); }
+        if (data.webhook_enabled !== undefined) { fields.push(`webhook_enabled = $${idx++}`); values.push(data.webhook_enabled); }
+
+        fields.push(`atualizado_em = NOW()`);
+        values.push(nome);
+
+        const query = `UPDATE instancias SET ${fields.join(', ')} WHERE nome = $${idx} RETURNING *`;
+        const result = await pool.query(query, values);
+        return result.rows[0];
+    } catch (err) {
+        return null;
+    }
+}
+
+async function getInstance(nome) {
+    try {
+        const result = await pool.query(`SELECT * FROM instancias WHERE nome = $1`, [nome]);
+        return result.rows[0];
+    } catch (err) {
+        return null;
+    }
+}
+
+async function getAllInstances() {
+    try {
+        const result = await pool.query(`SELECT * FROM instancias ORDER BY criado_em DESC`);
+        return result.rows;
+    } catch (err) {
+        return [];
+    }
+}
+
+async function getInstancesForUser(instanciasPermitidas) {
+    try {
+        if (!instanciasPermitidas || instanciasPermitidas.length === 0) {
+            return [];
+        }
+        const result = await pool.query(`
+            SELECT * FROM instancias 
+            WHERE nome = ANY($1)
+            ORDER BY criado_em DESC
+        `, [instanciasPermitidas]);
+        return result.rows;
+    } catch (err) {
+        return [];
+    }
+}
+
+async function deleteInstance(nome) {
+    try {
+        await pool.query(`DELETE FROM instancias WHERE nome = $1`, [nome]);
+        await pool.query(`DELETE FROM contatos WHERE instance = $1`, [nome]);
+        await pool.query(`DELETE FROM grupos WHERE instance = $1`, [nome]);
+        await pool.query(`DELETE FROM mensagens WHERE instance = $1`, [nome]);
+        return true;
+    } catch (err) {
+        return false;
+    }
+}
+
+// ============================================
+// FUNÇÕES DE BANCO - CONTATOS/GRUPOS/MENSAGENS
 // ============================================
 
 async function saveContact(instance, jid, nome) {
@@ -50,9 +311,7 @@ async function saveContact(instance, jid, nome) {
             ON CONFLICT (instance, jid) 
             DO UPDATE SET nome = EXCLUDED.nome
         `, [instance, jid, nome || jid.split('@')[0]]);
-    } catch (err) {
-        console.error(`[DB] Erro ao salvar contato:`, err.message);
-    }
+    } catch (err) {}
 }
 
 async function saveGroup(instance, jid, nome) {
@@ -63,9 +322,7 @@ async function saveGroup(instance, jid, nome) {
             ON CONFLICT (instance, jid) 
             DO UPDATE SET nome = EXCLUDED.nome
         `, [instance, jid, nome || jid.split('@')[0]]);
-    } catch (err) {
-        console.error(`[DB] Erro ao salvar grupo:`, err.message);
-    }
+    } catch (err) {}
 }
 
 async function saveMessage(instance, jid, tipo, conteudo) {
@@ -74,22 +331,16 @@ async function saveMessage(instance, jid, tipo, conteudo) {
             INSERT INTO mensagens (instance, jid, tipo, conteudo)
             VALUES ($1, $2, $3, $4)
         `, [instance, jid, tipo, conteudo]);
-    } catch (err) {
-        console.error(`[DB] Erro ao salvar mensagem:`, err.message);
-    }
+    } catch (err) {}
 }
 
 async function getContactsFromDB(instance) {
     try {
         const result = await pool.query(`
-            SELECT jid, nome, criado_em 
-            FROM contatos 
-            WHERE instance = $1 
-            ORDER BY nome ASC
+            SELECT jid, nome, criado_em FROM contatos WHERE instance = $1 ORDER BY nome ASC
         `, [instance]);
         return result.rows;
     } catch (err) {
-        console.error(`[DB] Erro ao buscar contatos:`, err.message);
         return [];
     }
 }
@@ -97,14 +348,10 @@ async function getContactsFromDB(instance) {
 async function getGroupsFromDB(instance) {
     try {
         const result = await pool.query(`
-            SELECT jid, nome, criado_em 
-            FROM grupos 
-            WHERE instance = $1 
-            ORDER BY nome ASC
+            SELECT jid, nome, criado_em FROM grupos WHERE instance = $1 ORDER BY nome ASC
         `, [instance]);
         return result.rows;
     } catch (err) {
-        console.error(`[DB] Erro ao buscar grupos:`, err.message);
         return [];
     }
 }
@@ -112,21 +359,42 @@ async function getGroupsFromDB(instance) {
 async function getMessagesFromDB(instance, jid) {
     try {
         const result = await pool.query(`
-            SELECT id, tipo, conteudo, criado_em 
-            FROM mensagens 
-            WHERE instance = $1 AND jid = $2
-            ORDER BY criado_em DESC
-            LIMIT 100
+            SELECT id, tipo, conteudo, criado_em FROM mensagens 
+            WHERE instance = $1 AND jid = $2 ORDER BY criado_em DESC LIMIT 100
         `, [instance, jid]);
         return result.rows;
     } catch (err) {
-        console.error(`[DB] Erro ao buscar mensagens:`, err.message);
         return [];
     }
 }
 
+async function getDBStats(instance) {
+    try {
+        const contactsResult = await pool.query(`SELECT COUNT(*) as count FROM contatos WHERE instance = $1`, [instance]);
+        const groupsResult = await pool.query(`SELECT COUNT(*) as count FROM grupos WHERE instance = $1`, [instance]);
+        const messagesResult = await pool.query(`SELECT COUNT(*) as count FROM mensagens WHERE instance = $1`, [instance]);
+        
+        return {
+            contacts: parseInt(contactsResult.rows[0]?.count || 0),
+            groups: parseInt(groupsResult.rows[0]?.count || 0),
+            messages: parseInt(messagesResult.rows[0]?.count || 0)
+        };
+    } catch (err) {
+        return { contacts: 0, groups: 0, messages: 0 };
+    }
+}
+
+async function logAccess(apiKeyId, endpoint, metodo, ip, statusCode) {
+    try {
+        await pool.query(`
+            INSERT INTO logs_acesso (api_key_id, endpoint, metodo, ip, status_code)
+            VALUES ($1, $2, $3, $4, $5)
+        `, [apiKeyId, endpoint, metodo, ip, statusCode]);
+    } catch (err) {}
+}
+
 // ============================================
-// FIM DAS FUNÇÕES DE BANCO
+// EXPRESS APP
 // ============================================
 
 const app = express();
@@ -139,12 +407,174 @@ const sessions = new Map();
 const qrCodes = new Map();
 const retryCounters = new Map();
 const localStore = new Map();
+const syncStatus = new Map();
 
 function getStore(instanceId) {
     if (!localStore.has(instanceId)) {
         localStore.set(instanceId, { contacts: {}, messages: {}, chats: {} });
     }
     return localStore.get(instanceId);
+}
+
+function getSyncStatus(instanceId) {
+    if (!syncStatus.has(instanceId)) {
+        syncStatus.set(instanceId, {
+            syncing: false, progress: 0, total: 0, phase: '',
+            completed: false, error: null, contactsSynced: 0, groupsSynced: 0
+        });
+    }
+    return syncStatus.get(instanceId);
+}
+
+// ============================================
+// MIDDLEWARE DE AUTENTICAÇÃO
+// ============================================
+
+const authMiddleware = async (req, res, next) => {
+    const apiKey = req.headers['apikey'] || req.headers['x-api-key'] || req.query.apikey;
+    
+    if (!apiKey) {
+        return res.status(401).json({ error: 'API Key não fornecida' });
+    }
+
+    const validation = await validateApiKey(apiKey);
+    
+    if (!validation.valid) {
+        await logAccess(null, req.path, req.method, req.ip, 401);
+        return res.status(401).json({ error: validation.error });
+    }
+
+    req.auth = validation;
+    req.apiKeyData = validation.apiKey;
+    req.isSuperAdmin = validation.isSuperAdmin;
+
+    await logAccess(validation.apiKey.id, req.path, req.method, req.ip, 200);
+    next();
+};
+
+// Middleware para verificar acesso à instância
+const instanceAccessMiddleware = async (req, res, next) => {
+    const instanceName = req.params.instance || req.body.instance;
+    
+    if (!instanceName) {
+        return next();
+    }
+
+    // Super Admin tem acesso a tudo
+    if (req.isSuperAdmin) {
+        return next();
+    }
+
+    // Usuário normal: verifica se tem permissão
+    const permitidas = req.apiKeyData.instancias_permitidas || [];
+    if (!permitidas.includes(instanceName)) {
+        return res.status(403).json({ error: 'Sem permissão para esta instância' });
+    }
+
+    next();
+};
+
+// Middleware apenas para Super Admin
+const superAdminOnly = (req, res, next) => {
+    if (!req.isSuperAdmin) {
+        return res.status(403).json({ error: 'Acesso restrito a Super Admin' });
+    }
+    next();
+};
+
+// ============================================
+// FUNÇÃO DE SINCRONIZAÇÃO COMPLETA
+// ============================================
+
+async function fullSync(sock, instanceId) {
+    const status = getSyncStatus(instanceId);
+    status.syncing = true;
+    status.progress = 0;
+    status.phase = 'Iniciando sincronização...';
+    status.completed = false;
+    status.error = null;
+    status.contactsSynced = 0;
+    status.groupsSynced = 0;
+
+    console.log(`[${instanceId}] 🔄 Iniciando sincronização completa...`);
+
+    try {
+        // FASE 1: GRUPOS
+        status.phase = 'Sincronizando grupos...';
+        let groupCount = 0;
+        try {
+            const groups = await sock.groupFetchAllParticipating();
+            const groupList = Object.values(groups);
+            status.total = groupList.length;
+            
+            for (const group of groupList) {
+                await saveGroup(instanceId, group.id, group.subject || group.id.split('@')[0]);
+                groupCount++;
+                status.progress = groupCount;
+                status.groupsSynced = groupCount;
+            }
+            console.log(`[${instanceId}] ✅ ${groupCount} grupos sincronizados!`);
+        } catch (e) {
+            console.log(`[${instanceId}] ⚠️ Erro grupos:`, e.message);
+        }
+
+        // FASE 2: CONTATOS VIA CHATS
+        status.phase = 'Sincronizando contatos...';
+        status.progress = 0;
+        let contactCount = 0;
+        
+        try {
+            const storeData = getStore(instanceId);
+            await delay(2000);
+            
+            const allChats = Object.values(storeData.chats || {});
+            const allContacts = Object.values(storeData.contacts || {});
+            const jidsToSync = new Set();
+            
+            for (const chat of allChats) {
+                if (chat.id && !chat.id.endsWith('@g.us') && !chat.id.endsWith('@broadcast')) {
+                    jidsToSync.add(chat.id);
+                }
+            }
+            
+            for (const contact of allContacts) {
+                if (contact.id && !contact.id.endsWith('@g.us') && !contact.id.endsWith('@broadcast')) {
+                    jidsToSync.add(contact.id);
+                }
+            }
+            
+            status.total = jidsToSync.size;
+            
+            for (const jid of jidsToSync) {
+                const contact = storeData.contacts[jid] || {};
+                const chat = storeData.chats[jid] || {};
+                const nome = contact.name || contact.notify || contact.verifiedName || chat.name || jid.split('@')[0];
+                
+                await saveContact(instanceId, jid, nome);
+                contactCount++;
+                status.progress = contactCount;
+                status.contactsSynced = contactCount;
+            }
+            
+            console.log(`[${instanceId}] ✅ ${contactCount} contatos sincronizados!`);
+        } catch (e) {
+            console.log(`[${instanceId}] ⚠️ Erro contatos:`, e.message);
+        }
+
+        status.phase = 'Finalizando...';
+        status.syncing = false;
+        status.completed = true;
+        
+        const finalStats = await getDBStats(instanceId);
+        console.log(`[${instanceId}] ✅ SINCRONIZAÇÃO COMPLETA! ${finalStats.contacts} contatos, ${finalStats.groups} grupos`);
+        
+        return { success: true, stats: finalStats };
+
+    } catch (error) {
+        status.syncing = false;
+        status.error = error.message;
+        return { success: false, error: error.message };
+    }
 }
 
 // ============================================
@@ -176,7 +606,7 @@ async function startSession(instanceId) {
         browser: ["NexusWa_Api", "Chrome", "1.0.0"],
         markOnlineOnConnect: true,
         generateHighQualityLinkPreview: true,
-        syncFullHistory: true, 
+        syncFullHistory: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         retryRequestDelayMs: 500,
@@ -191,74 +621,81 @@ async function startSession(instanceId) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // 🔥 Carga Inicial de Contatos
-    sock.ev.on('contacts.set', ({ contacts }) => {
+    // Contatos
+    sock.ev.on('contacts.set', async ({ contacts }) => {
         const storeData = getStore(instanceId);
+        let count = 0;
         for (const contact of contacts) {
-            storeData.contacts[contact.id] = { 
-                ...(storeData.contacts[contact.id] || {}), 
-                ...contact 
-            };
-            
-            // 🆕 Salva no banco de dados
-            const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
-            saveContact(instanceId, contact.id, nome);
-        }
-        console.log(`[${instanceId}] ✅ ${contacts.length} contatos sincronizados (RAM + DB).`);
-    });
-
-    sock.ev.on('contacts.upsert', (contacts) => {
-        const storeData = getStore(instanceId);
-        for (const contact of contacts) {
-            storeData.contacts[contact.id] = { 
-                ...(storeData.contacts[contact.id] || {}), 
-                ...contact 
-            };
-            
-            // 🆕 Salva no banco de dados
-            const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
-            saveContact(instanceId, contact.id, nome);
-        }
-        console.log(`[${instanceId}] 📇 ${contacts.length} contatos atualizados (RAM + DB).`);
-    });
-
-    sock.ev.on('messages.upsert', ({ messages }) => {
-        const storeData = getStore(instanceId);
-        messages.forEach(m => {
-            if (m.key && m.key.id) storeData.messages[m.key.id] = m;
-        });
-        console.log(`[${instanceId}] 📩 Mensagens novas: ${messages.length}`);
-    });
-
-    sock.ev.on('messages.update', updates => {
-        const storeData = getStore(instanceId);
-        updates.forEach(u => {
-            if (u.key?.id && storeData.messages[u.key.id]) {
-                storeData.messages[u.key.id] = { ...storeData.messages[u.key.id], ...u };
+            storeData.contacts[contact.id] = { ...(storeData.contacts[contact.id] || {}), ...contact };
+            if (!contact.id.endsWith('@g.us') && !contact.id.endsWith('@broadcast')) {
+                const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
+                await saveContact(instanceId, contact.id, nome);
+                count++;
             }
-        });
+        }
+        if (count > 0) console.log(`[${instanceId}] ✅ contacts.set: ${count} contatos`);
     });
 
-    sock.ev.on('chats.set', ({ chats }) => {
+    sock.ev.on('contacts.upsert', async (contacts) => {
+        const storeData = getStore(instanceId);
+        for (const contact of contacts) {
+            storeData.contacts[contact.id] = { ...(storeData.contacts[contact.id] || {}), ...contact };
+            if (!contact.id.endsWith('@g.us') && !contact.id.endsWith('@broadcast')) {
+                const nome = contact.name || contact.notify || contact.verifiedName || contact.id.split('@')[0];
+                await saveContact(instanceId, contact.id, nome);
+            }
+        }
+    });
+
+    // Mensagens
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        const storeData = getStore(instanceId);
+        for (const m of messages) {
+            if (m.key && m.key.id) {
+                storeData.messages[m.key.id] = m;
+                const jid = m.key.remoteJid;
+                if (jid && jid !== 'status@broadcast') {
+                    const isGroup = jid.endsWith('@g.us');
+                    if (isGroup) {
+                        const groupInfo = storeData.chats[jid];
+                        await saveGroup(instanceId, jid, groupInfo?.subject || groupInfo?.name || jid.split('@')[0]);
+                    } else {
+                        const contactInfo = storeData.contacts[jid];
+                        const nome = contactInfo?.name || contactInfo?.notify || contactInfo?.verifiedName || m.pushName || jid.split('@')[0];
+                        await saveContact(instanceId, jid, nome);
+                    }
+                }
+            }
+        }
+    });
+
+    // Chats
+    sock.ev.on('chats.set', async ({ chats }) => {
         const storeData = getStore(instanceId);
         for (const chat of chats) {
-            storeData.chats[chat.id] = {
-                ...(storeData.chats[chat.id] || {}),
-                ...chat
-            };
+            storeData.chats[chat.id] = { ...(storeData.chats[chat.id] || {}), ...chat };
+            if (chat.id.endsWith('@g.us')) {
+                await saveGroup(instanceId, chat.id, chat.name || chat.subject || chat.id.split('@')[0]);
+            } else if (!chat.id.endsWith('@broadcast')) {
+                await saveContact(instanceId, chat.id, chat.name || chat.id.split('@')[0]);
+            }
         }
-        console.log(`[${instanceId}] 💬 ${chats.length} chats sincronizados.`);
     });
 
-    sock.ev.on('chats.upsert', (chats) => {
+    sock.ev.on('chats.upsert', async (chats) => {
         const storeData = getStore(instanceId);
-        chats.forEach(chat => {
+        for (const chat of chats) {
             storeData.chats[chat.id] = chat;
-        });
-        console.log(`[${instanceId}] 🗂 Chats atualizados: ${Object.keys(storeData.chats).length}`);
+            if (chat.id.endsWith('@g.us')) {
+                await saveGroup(instanceId, chat.id, chat.name || chat.subject || chat.id.split('@')[0]);
+            } else if (!chat.id.endsWith('@broadcast')) {
+                await saveContact(instanceId, chat.id, chat.name || chat.id.split('@')[0]);
+            }
+        }
     });
 
-    sock.ev.on('connection.update', (update) => {
+    // Conexão
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
@@ -266,33 +703,30 @@ async function startSession(instanceId) {
             qrCodes.set(instanceId, qr);
             retryCounters.set(instanceId, 0);
         }
-        
+
         if (connection === 'connecting') {
             console.log(`[${instanceId}] ⏳ Conectando...`);
+            await updateInstance(instanceId, { status: 'connecting' });
         }
 
         if (connection === 'open') {
-            console.log(`[${instanceId}] 🟢 CONECTADO COMPLETAMENTE`);
+            console.log(`[${instanceId}] 🟢 CONECTADO!`);
             qrCodes.delete(instanceId);
             retryCounters.set(instanceId, 0);
 
-            const storeData = getStore(instanceId);
+            const jid = jidNormalizedUser(sock.authState.creds.me.id);
+            let avatar = '';
+            try { avatar = await sock.profilePictureUrl(jid, 'image'); } catch {}
+
+            await updateInstance(instanceId, {
+                status: 'connected',
+                jid: jid,
+                push_name: sock.authState.creds.me.name || instanceId,
+                avatar: avatar
+            });
 
             setTimeout(async () => {
-                try {
-                    const groups = await sock.groupFetchAllParticipating();
-                    const groupList = Object.values(groups);
-                    
-                    groupList.forEach(g => {
-                        storeData.chats[g.id] = g;
-                        // 🆕 Salva grupo no banco de dados
-                        saveGroup(instanceId, g.id, g.subject || g.id.split('@')[0]);
-                    });
-                    
-                    console.log(`[${instanceId}] 🔥 Grupos carregados: ${groupList.length} (RAM + DB)`);
-                } catch(e) { 
-                    console.log("Erro grupos:", e.message); 
-                }
+                await fullSync(sock, instanceId);
             }, 3000);
         }
 
@@ -307,7 +741,9 @@ async function startSession(instanceId) {
 
             const shouldReconnect = !isLoggedOut;
 
-            console.log(`[${instanceId}] 🔴 DESCONECTADO | Motivo: ${reason || statusCode} | Reconnect: ${shouldReconnect}`);
+            console.log(`[${instanceId}] 🔴 DESCONECTADO | Motivo: ${reason || statusCode}`);
+
+            await updateInstance(instanceId, { status: 'disconnected' });
 
             sessions.delete(instanceId);
             qrCodes.delete(instanceId);
@@ -316,13 +752,11 @@ async function startSession(instanceId) {
                 const retries = retryCounters.get(instanceId) || 0;
                 if (retries < 10) {
                     retryCounters.set(instanceId, retries + 1);
-                    console.log(`[${instanceId}] Tentando reconectar em 2s (${retries+1}/10)...`);
+                    console.log(`[${instanceId}] Reconectando em 2s (${retries+1}/10)...`);
                     setTimeout(() => startSession(instanceId), 2000);
-                } else {
-                    console.log(`[${instanceId}] ⛔ Limite de tentativas excedido.`);
                 }
             } else {
-                console.log(`[${instanceId}] Sessão encerrada (Logout). Limpando arquivos.`);
+                console.log(`[${instanceId}] Sessão encerrada (Logout).`);
                 try { fs.rmSync(authPath, { recursive: true, force: true }); } catch(e) {}
             }
         }
@@ -333,15 +767,201 @@ async function startSession(instanceId) {
 }
 
 // ============================================
-// ROTAS API
+// ROTAS PÚBLICAS (SEM AUTENTICAÇÃO)
 // ============================================
 
-app.post('/session/start', async (req, res) => {
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============================================
+// ROTAS DE API KEYS (SUPER ADMIN ONLY)
+// ============================================
+
+app.get('/v1/api-keys', authMiddleware, superAdminOnly, async (req, res) => {
+    const keys = await getAllApiKeys();
+    res.json(keys.map(k => ({
+        id: k.id,
+        prefix: k.key_prefix,
+        nome: k.nome,
+        tipo: k.tipo,
+        ativa: k.ativa,
+        instanciasPermitidas: k.instancias_permitidas,
+        criadoEm: k.criado_em,
+        expiraEm: k.expira_em,
+        ultimoUso: k.ultimo_uso,
+        totalRequisicoes: k.total_requisicoes,
+        expirada: k.expira_em ? new Date(k.expira_em) < new Date() : false
+    })));
+});
+
+app.post('/v1/api-keys', authMiddleware, superAdminOnly, async (req, res) => {
+    const { nome, tipo = 'user', validade, instanciasPermitidas } = req.body;
+    
+    if (!nome) {
+        return res.status(400).json({ error: 'Nome obrigatório' });
+    }
+
+    // Converte validade para dias
+    let validadeDias = null;
+    if (validade === '30') validadeDias = 30;
+    else if (validade === '90') validadeDias = 90;
+    else if (validade === '180') validadeDias = 180;
+    else if (validade === '365') validadeDias = 365;
+    // null = nunca expira
+
+    const apiKey = await createApiKey(nome, tipo, validadeDias, instanciasPermitidas);
+    
+    if (apiKey) {
+        res.json({
+            status: 'success',
+            message: 'API Key criada! Guarde a key, ela não será mostrada novamente.',
+            apiKey: {
+                id: apiKey.id,
+                key: apiKey.key, // Só retorna a key na criação!
+                prefix: apiKey.key_prefix,
+                nome: apiKey.nome,
+                tipo: apiKey.tipo,
+                expiraEm: apiKey.expira_em
+            }
+        });
+    } else {
+        res.status(500).json({ error: 'Erro ao criar API Key' });
+    }
+});
+
+app.put('/v1/api-keys/:id', authMiddleware, superAdminOnly, async (req, res) => {
+    const { id } = req.params;
+    const { nome, ativa, tipo, instanciasPermitidas, renovarValidade } = req.body;
+
+    const updateData = {};
+    if (nome !== undefined) updateData.nome = nome;
+    if (ativa !== undefined) updateData.ativa = ativa;
+    if (tipo !== undefined) updateData.tipo = tipo;
+    if (instanciasPermitidas !== undefined) updateData.instancias_permitidas = instanciasPermitidas;
+    
+    // Renovar validade
+    if (renovarValidade) {
+        const novaExpiracao = new Date();
+        novaExpiracao.setDate(novaExpiracao.getDate() + parseInt(renovarValidade));
+        updateData.expira_em = novaExpiracao;
+    }
+
+    const updated = await updateApiKey(id, updateData);
+    if (updated) {
+        res.json({ status: 'success', apiKey: updated });
+    } else {
+        res.status(500).json({ error: 'Erro ao atualizar' });
+    }
+});
+
+app.delete('/v1/api-keys/:id', authMiddleware, superAdminOnly, async (req, res) => {
+    const { id } = req.params;
+    
+    // Não permite deletar a própria key
+    if (parseInt(id) === req.apiKeyData.id) {
+        return res.status(400).json({ error: 'Não é possível deletar sua própria API Key' });
+    }
+
+    const deleted = await deleteApiKey(id);
+    if (deleted) {
+        res.json({ status: 'success' });
+    } else {
+        res.status(500).json({ error: 'Erro ao deletar' });
+    }
+});
+
+// ============================================
+// ROTAS DE INSTÂNCIAS
+// ============================================
+
+app.get('/v1/instances', authMiddleware, async (req, res) => {
+    let instances;
+    
+    if (req.isSuperAdmin) {
+        instances = await getAllInstances();
+    } else {
+        instances = await getInstancesForUser(req.apiKeyData.instancias_permitidas);
+    }
+    
+    const result = await Promise.all(instances.map(async (inst) => {
+        const stats = await getDBStats(inst.nome);
+        return {
+            name: inst.nome,
+            status: inst.status,
+            jid: inst.jid,
+            pushName: inst.push_name,
+            avatar: inst.avatar,
+            stats: {
+                contacts: stats.contacts,
+                groups: stats.groups,
+                messagesSent: stats.messages
+            },
+            createdAt: inst.criado_em,
+            updatedAt: inst.atualizado_em
+        };
+    }));
+    
+    res.json(result);
+});
+
+app.post('/v1/instances', authMiddleware, superAdminOnly, async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
+    
+    const instance = await createInstance(name, req.apiKeyData.id);
+    
+    if (instance) {
+        res.json({ 
+            status: 'success', 
+            instance: {
+                name: instance.nome,
+                status: instance.status
+            }
+        });
+    } else {
+        res.status(500).json({ error: 'Erro ao criar instância' });
+    }
+});
+
+app.delete('/v1/instances/:name', authMiddleware, superAdminOnly, async (req, res) => {
+    const { name } = req.params;
+    
+    const sock = sessions.get(name);
+    if (sock) {
+        try { await sock.logout(); sock.end(); } catch(e) {}
+        sessions.delete(name);
+        qrCodes.delete(name);
+        localStore.delete(name);
+        syncStatus.delete(name);
+    }
+    
+    try { fs.rmSync(`auth_info/${name}`, { recursive: true, force: true }); } catch(e) {}
+    
+    await deleteInstance(name);
+    
+    res.json({ status: 'success' });
+});
+
+// ============================================
+// ROTAS DE SESSÃO
+// ============================================
+
+app.post('/session/start', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.body;
     if (!instance) return res.status(400).json({ error: 'Instance required' });
 
     console.log(`>>> [API] Pedido de conexão: ${instance}`);
     retryCounters.set(instance, 0);
+
+    const existing = await getInstance(instance);
+    if (!existing) {
+        // Só Super Admin pode criar novas instâncias
+        if (!req.isSuperAdmin) {
+            return res.status(403).json({ error: 'Instância não existe. Contate o administrador.' });
+        }
+        await createInstance(instance, req.apiKeyData.id);
+    }
 
     try {
         const sock = await startSession(instance);
@@ -362,12 +982,11 @@ app.post('/session/start', async (req, res) => {
         res.json({ status: 'TIMEOUT', qrcode: '' });
 
     } catch (error) {
-        console.error(`[${instance}] Erro fatal:`, error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.post('/session/pair-code', async (req, res) => {
+app.post('/session/pair-code', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, phoneNumber } = req.body;
     if (!instance || !phoneNumber) return res.status(400).json({ error: 'Dados faltantes' });
     retryCounters.set(instance, 0);
@@ -390,7 +1009,7 @@ app.post('/session/pair-code', async (req, res) => {
     }
 });
 
-app.post('/session/logout', async (req, res) => {
+app.post('/session/logout', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.body;
     const sock = sessions.get(instance);
     if (sock) {
@@ -402,6 +1021,10 @@ app.post('/session/logout', async (req, res) => {
         sessions.delete(instance);
         qrCodes.delete(instance);
         localStore.delete(instance);
+        syncStatus.delete(instance);
+        
+        await updateInstance(instance, { status: 'disconnected', jid: null, avatar: null });
+        
         try { fs.rmSync(`auth_info/${instance}`, { recursive: true, force: true }); } catch(e) {}
         res.json({ status: 'success' });
     } else {
@@ -409,64 +1032,90 @@ app.post('/session/logout', async (req, res) => {
     }
 });
 
-app.get('/v1/instance/:instance/info', async (req, res) => {
+// ============================================
+// ROTAS DE INFO E SYNC
+// ============================================
+
+app.get('/v1/instance/:instance/sync-status', authMiddleware, instanceAccessMiddleware, async (req, res) => {
+    const { instance } = req.params;
+    const status = getSyncStatus(instance);
+    const dbStats = await getDBStats(instance);
+    res.json({ ...status, dbStats });
+});
+
+app.post('/v1/instance/:instance/sync', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.params;
     const sock = sessions.get(instance);
-    if (!sock || !sock.authState.creds.me) return res.status(404).json({ status: 'disconnected' });
+    if (!sock) return res.status(400).json({ error: 'Instância não conectada' });
+    fullSync(sock, instance);
+    res.json({ status: 'started' });
+});
+
+app.get('/v1/instance/:instance/info', authMiddleware, instanceAccessMiddleware, async (req, res) => {
+    const { instance } = req.params;
+    const sock = sessions.get(instance);
+    
+    if (!sock || !sock.authState.creds.me) {
+        const inst = await getInstance(instance);
+        if (inst) {
+            const stats = await getDBStats(instance);
+            return res.json({
+                status: 'disconnected',
+                jid: inst.jid,
+                name: inst.push_name,
+                avatar: inst.avatar,
+                contacts: stats.contacts,
+                groups: stats.groups,
+                messages: stats.messages
+            });
+        }
+        return res.status(404).json({ status: 'disconnected' });
+    }
 
     const jid = jidNormalizedUser(sock.authState.creds.me.id);
     let avatar = '';
     try { avatar = await sock.profilePictureUrl(jid, 'image'); } catch {}
 
-    const storeData = getStore(instance);
-    const contactsCount = Object.keys(storeData.contacts).length;
-    const chatsCount = Object.keys(storeData.chats || {}).length;
+    const dbStats = await getDBStats(instance);
+    const status = getSyncStatus(instance);
 
     res.json({
         status: 'connected', 
         jid, 
         name: sock.authState.creds.me.name || instance,
         avatar, 
-        contacts: contactsCount, 
-        groups: chatsCount,
-        sent: storeData.sentCount || 0
+        contacts: dbStats.contacts,
+        groups: dbStats.groups,
+        messages: dbStats.messages,
+        syncing: status.syncing,
+        syncPhase: status.phase,
+        syncCompleted: status.completed
     });
 });
 
-// --- MENSAGENS ---
+// ============================================
+// ROTAS DE MENSAGENS
+// ============================================
 
-app.post('/v1/message/text', async (req, res) => {
+app.post('/v1/message/text', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, text } = req.body;
     const sock = sessions.get(instance);
     if (!sock) return res.status(400).json({ error: 'Disconnected' });
 
-    const storeData = getStore(instance);
-
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
         const sent = await sock.sendMessage(jid, { text });
-
-        storeData.sentCount = (storeData.sentCount || 0) + 1;
-
-        // 🆕 Salva mensagem no banco de dados
         await saveMessage(instance, jid, 'text', text);
-
-        res.json({ 
-            status: 'success',
-            key: sent.key,
-            totalSent: storeData.sentCount
-        });
-
+        res.json({ status: 'success', key: sent.key });
     } catch(e) { 
         res.status(500).json({ error: e.message }); 
     }
 });
 
-app.post('/v1/message/buttons', async (req, res) => {
+app.post('/v1/message/buttons', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, message, footer, buttons, title } = req.body;
-
     const sock = sessions.get(instance);
-    if (!sock) return res.status(400).json({ error: 'Instância desconectada' });
+    if (!sock) return res.status(400).json({ error: 'Disconnected' });
 
     const jid = number.includes('@') ? number : number + '@s.whatsapp.net';
 
@@ -475,37 +1124,22 @@ app.post('/v1/message/buttons', async (req, res) => {
             title: title || '',
             text: message,
             footer: footer || 'NexusWA',
-            buttons: buttons.map(b => ({
-                id: b.id,
-                text: b.text
-            }))
+            buttons: buttons.map(b => ({ id: b.id, text: b.text }))
         });
-
-        const storeData = getStore(instance);
-        storeData.sentCount = (storeData.sentCount || 0) + 1;
-
-        // 🆕 Salva mensagem no banco de dados
         await saveMessage(instance, jid, 'buttons', JSON.stringify({ message, footer, title, buttons }));
-
-        return res.json({ 
-            status: 'success', 
-            messageId: result?.key?.id || 'sent'
-        });
-        
+        return res.json({ status: 'success', messageId: result?.key?.id || 'sent' });
     } catch (e) {
-        console.error("Erro ao enviar botões:", e);
         return res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/v1/message/list', async (req, res) => {
+app.post('/v1/message/list', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, title, message, footer, buttonText, sections } = req.body;
     const sock = sessions.get(instance);
     if (!sock) return res.status(400).json({ error: 'Disconnected' });
 
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
         const result = await sendInteractiveMessage(sock, jid, {
             text: message,
             footer: footer || 'NexusWA',
@@ -525,28 +1159,20 @@ app.post('/v1/message/list', async (req, res) => {
                 })
             }]
         });
-
-        const storeData = getStore(instance);
-        storeData.sentCount = (storeData.sentCount || 0) + 1;
-
-        // 🆕 Salva mensagem no banco de dados
         await saveMessage(instance, jid, 'list', JSON.stringify({ title, message, footer, buttonText, sections }));
-
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
-        console.error("Erro ao enviar lista:", e);
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/v1/message/url-button', async (req, res) => {
+app.post('/v1/message/url-button', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, message, footer, title, buttonText, url } = req.body;
     const sock = sessions.get(instance);
     if (!sock) return res.status(400).json({ error: 'Disconnected' });
 
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
         const result = await sendInteractiveMessage(sock, jid, {
             text: message,
             footer: footer || 'NexusWA',
@@ -560,25 +1186,20 @@ app.post('/v1/message/url-button', async (req, res) => {
                 })
             }]
         });
-
-        // 🆕 Salva mensagem no banco de dados
         await saveMessage(instance, jid, 'url-button', JSON.stringify({ message, footer, title, buttonText, url }));
-
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
-        console.error("Erro ao enviar botão URL:", e);
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/v1/message/copy-button', async (req, res) => {
+app.post('/v1/message/copy-button', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, message, footer, title, buttonText, copyCode } = req.body;
     const sock = sessions.get(instance);
     if (!sock) return res.status(400).json({ error: 'Disconnected' });
 
     try {
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
         const result = await sendInteractiveMessage(sock, jid, {
             text: message,
             footer: footer || 'NexusWA',
@@ -591,18 +1212,14 @@ app.post('/v1/message/copy-button', async (req, res) => {
                 })
             }]
         });
-
-        // 🆕 Salva mensagem no banco de dados
         await saveMessage(instance, jid, 'copy-button', JSON.stringify({ message, footer, title, buttonText, copyCode }));
-
         res.json({ status: "success", messageId: result?.key?.id || 'sent' });
     } catch (e) {
-        console.error("Erro ao enviar botão copiar:", e);
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/v1/message/interactive', async (req, res) => {
+app.post('/v1/message/interactive', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, number, interactive } = req.body;
     const sock = sessions.get(instance);
     if (!sock) return res.status(400).json({ error: 'Disconnected' });
@@ -622,146 +1239,146 @@ app.post('/v1/message/interactive', async (req, res) => {
                 title: interactive.header?.text || '',
                 buttons: buttons
             });
-
-            // 🆕 Salva mensagem no banco de dados
             await saveMessage(instance, jid, 'interactive', JSON.stringify(interactive));
-            
             return res.json({ status: 'success', messageId: result?.key?.id || 'sent' });
         }
         
         const sent = await sock.sendMessage(jid, { 
             text: interactive.body?.text || interactive.text || 'Mensagem interativa'
         });
-
-        // 🆕 Salva mensagem no banco de dados
-        await saveMessage(instance, jid, 'interactive-text', interactive.body?.text || interactive.text || '');
-
         res.json({ status: 'success', key: sent.key });
         
     } catch(e) { 
-        console.error("Erro interactive:", e);
         res.status(500).json({ error: e.message }); 
     }
 });
 
-// --- CONTATOS E GRUPOS ---
+// ============================================
+// ROTAS DE CONTATOS E GRUPOS
+// ============================================
 
-app.get('/v1/contacts/:instance', async (req, res) => {
+app.get('/v1/contacts/:instance', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.params;
-    const storeData = getStore(instance);
-    const sock = sessions.get(instance);
-    
-    const contacts = Object.values(storeData.contacts).map(c => ({
-        jid: c.id,
-        name: c.name || c.notify || c.verifiedName || c.id.split('@')[0],
-        is_group: c.id.endsWith('@g.us')
-    }));
-    
-    const groupsFromChats = Object.values(storeData.chats || {})
-        .filter(chat => chat.id && chat.id.endsWith('@g.us'))
-        .map(g => ({
-            jid: g.id,
-            name: g.subject || g.name || g.id.split('@')[0],
+    try {
+        const contactsDB = await getContactsFromDB(instance);
+        const groupsDB = await getGroupsFromDB(instance);
+        
+        const contacts = contactsDB.map(c => ({
+            jid: c.jid,
+            name: c.nome || c.jid.split('@')[0],
+            is_group: false
+        }));
+        
+        const groups = groupsDB.map(g => ({
+            jid: g.jid,
+            name: g.nome || g.jid.split('@')[0],
             is_group: true
         }));
-    
-    let groupsFromSocket = [];
-    if (groupsFromChats.length === 0 && sock) {
-        try {
-            const groups = await sock.groupFetchAllParticipating();
-            groupsFromSocket = Object.values(groups).map(g => ({
-                jid: g.id,
-                name: g.subject || g.id.split('@')[0],
-                is_group: true
-            }));
-            
-            Object.values(groups).forEach(g => storeData.chats[g.id] = g);
-        } catch(e) {
-            console.log(`[${instance}] Erro ao buscar grupos:`, e.message);
-        }
+        
+        res.json([...contacts, ...groups]);
+    } catch (e) {
+        res.json([]);
     }
-    
-    const allGroups = [...groupsFromChats, ...groupsFromSocket];
-    const groupJids = new Set(allGroups.map(g => g.jid));
-    const filteredContacts = contacts.filter(c => !groupJids.has(c.jid));
-    const result = [...filteredContacts, ...allGroups];
-    
-    res.json(result);
 });
 
-app.get('/v1/groups/:instance', async (req, res) => {
+app.get('/v1/groups/:instance', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.params;
-    const sock = sessions.get(instance);
-    if (!sock) return res.json([]);
     try {
-        const groups = await sock.groupFetchAllParticipating();
-        const result = Object.values(groups).map(g => ({
-            jid: g.id, 
-            name: g.subject, 
-            participants: g.participants.length,
-            owner: g.owner, 
-            created: g.creation
+        const groupsDB = await getGroupsFromDB(instance);
+        const result = groupsDB.map(g => ({
+            jid: g.jid,
+            name: g.nome || g.jid.split('@')[0],
+            participants: 0,
+            owner: '',
+            created: g.criado_em
         }));
         res.json(result);
-    } catch(e) { res.json([]); }
+    } catch (e) {
+        res.json([]);
+    }
 });
 
-app.get('/v1/messages/:instance/:jid', (req, res) => {
+app.get('/v1/messages/:instance/:jid', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, jid } = req.params;
     const storeData = getStore(instance);
-
     const msgs = Object.values(storeData.messages)
         .filter(m => m.key?.remoteJid === jid)
         .sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0));
-
     res.json(msgs);
 });
 
 // ============================================
-// 🆕 ROTAS DE BANCO DE DADOS (NOVAS)
+// ROTAS DE BANCO DE DADOS
 // ============================================
 
-app.get('/v1/db/contacts/:instance', async (req, res) => {
+app.get('/v1/db/contacts/:instance', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.params;
-    try {
-        const contacts = await getContactsFromDB(instance);
-        res.json(contacts);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    const contacts = await getContactsFromDB(instance);
+    res.json(contacts);
 });
 
-app.get('/v1/db/groups/:instance', async (req, res) => {
+app.get('/v1/db/groups/:instance', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance } = req.params;
-    try {
-        const groups = await getGroupsFromDB(instance);
-        res.json(groups);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    const groups = await getGroupsFromDB(instance);
+    res.json(groups);
 });
 
-app.get('/v1/db/messages/:instance/:jid', async (req, res) => {
+app.get('/v1/db/messages/:instance/:jid', authMiddleware, instanceAccessMiddleware, async (req, res) => {
     const { instance, jid } = req.params;
-    try {
-        const messages = await getMessagesFromDB(instance, jid);
-        res.json(messages);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    const messages = await getMessagesFromDB(instance, jid);
+    res.json(messages);
+});
+
+app.get('/v1/db/stats/:instance', authMiddleware, instanceAccessMiddleware, async (req, res) => {
+    const { instance } = req.params;
+    const stats = await getDBStats(instance);
+    res.json(stats);
 });
 
 // ============================================
-// AUTO-RECOVERY
+// ROTA DE INFO DO USUÁRIO ATUAL
 // ============================================
 
-if (!fs.existsSync('auth_info')) fs.mkdirSync('auth_info');
-const folders = fs.readdirSync('auth_info');
-folders.forEach(f => {
-    if (fs.lstatSync(`auth_info/${f}`).isDirectory()) {
-        console.log(`Recuperando sessão: ${f}`);
-        startSession(f);
-    }
+app.get('/v1/me', authMiddleware, async (req, res) => {
+    const apiKey = req.apiKeyData;
+    res.json({
+        id: apiKey.id,
+        nome: apiKey.nome,
+        tipo: apiKey.tipo,
+        isSuperAdmin: req.isSuperAdmin,
+        instanciasPermitidas: apiKey.instancias_permitidas,
+        criadoEm: apiKey.criado_em,
+        expiraEm: apiKey.expira_em,
+        ultimoUso: apiKey.ultimo_uso
+    });
 });
 
-app.listen(PORT, () => console.log(`🚀 Nexus Baileys API rodando na porta ${PORT}`));
+// ============================================
+// AUTO-RECOVERY E INICIALIZAÇÃO
+// ============================================
+
+async function recoverSessions() {
+    const instances = await getAllInstances();
+    
+    for (const inst of instances) {
+        const authPath = `auth_info/${inst.nome}`;
+        if (fs.existsSync(authPath)) {
+            console.log(`Recuperando sessão: ${inst.nome}`);
+            startSession(inst.nome);
+        }
+    }
+}
+
+async function init() {
+    if (!fs.existsSync('auth_info')) fs.mkdirSync('auth_info');
+    
+    // Garante que existe um Super Admin
+    await ensureSuperAdminExists();
+    
+    // Recupera sessões
+    await recoverSessions();
+    
+    app.listen(PORT, () => console.log(`🚀 Nexus Baileys API rodando na porta ${PORT}`));
+}
+
+init();

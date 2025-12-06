@@ -59,7 +59,20 @@ func (h *SessionHandler) Connect(c *fiber.Ctx) error {
 }
 
 func (h *SessionHandler) Logout(c *fiber.Ctx) error {
-	instanceKey := c.Params("instance")
-	h.Service.Client.Logout(instanceKey)
-	return c.JSON(fiber.Map{"status": "success", "message": "Logged out"})
+	instance := c.Params("instance")
+
+	_, err := h.Service.Client.Logout(map[string]interface{}{
+		"instance": instance,
+	})
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"status":  "error",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "Logout realizado",
+	})
 }

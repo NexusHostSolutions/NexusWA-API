@@ -177,6 +177,54 @@ func (c *BaileysClient) GetMessagesDB(instance, jid string) ([]map[string]interf
 	return result, nil
 }
 
+// Adicione estes métodos à struct BaileysClient
+
+func (c *BaileysClient) GetSyncStatus(instance string) (map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/v1/instance/%s/sync-status", c.BaseURL, instance)
+	
+	resp, err := c.HTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *BaileysClient) TriggerSync(instance string) error {
+	url := fmt.Sprintf("%s/v1/instance/%s/sync", c.BaseURL, instance)
+	
+	resp, err := c.HTTPClient.Post(url, "application/json", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func (c *BaileysClient) GetInstanceInfo(instance string) (map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/v1/instance/%s/info", c.BaseURL, instance)
+	
+	resp, err := c.HTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // ============================================
 // FUNÇÕES EXISTENTES (NÃO MODIFICADAS)
 // ============================================
@@ -251,12 +299,6 @@ func (c *BaileysClient) PairPhone(instance, phone string) (string, error) {
 	return result.Code, nil
 }
 
-func (c *BaileysClient) Logout(instanceKey string) {
-	payload := map[string]string{"instance": instanceKey}
-	data, _ := json.Marshal(payload)
-	c.HTTPClient.Post(c.BaseURL+"/session/logout", "application/json", bytes.NewBuffer(data))
-}
-
 func (c *BaileysClient) GetConnectionInfo(instance string) (map[string]interface{}, error) {
 	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/instance/%s/info", c.BaseURL, instance))
 	if err != nil {
@@ -284,12 +326,6 @@ func (c *BaileysClient) IsConnected(instanceKey string) bool {
 func (c *BaileysClient) SendText(instance, number, text string, opts *models.MessageOptions) (string, error) {
 	return c.postRequest("/v1/message/text", map[string]interface{}{
 		"instance": instance, "number": number, "text": text,
-	})
-}
-
-func (c *BaileysClient) SendInteractive(instance, number string, interactive *models.InteractivePayload, opts *models.MessageOptions) (string, error) {
-	return c.postRequest("/v1/message/interactive", map[string]interface{}{
-		"instance": instance, "number": number, "interactive": interactive,
 	})
 }
 
@@ -328,6 +364,9 @@ func (c *BaileysClient) SendUrlButton(instance, number, message, footer, title, 
 	})
 }
 
+// ================= BOTÕES NOVOS COMPATÍVEIS =================
+
+// Botão de copiar código
 func (c *BaileysClient) SendCopyButton(instance, number, message, footer, title, buttonText, copyCode string) (string, error) {
 	return c.postRequest("/v1/message/copy-button", map[string]interface{}{
 		"instance":   instance,
@@ -337,6 +376,16 @@ func (c *BaileysClient) SendCopyButton(instance, number, message, footer, title,
 		"title":      title,
 		"buttonText": buttonText,
 		"copyCode":   copyCode,
+	})
+}
+
+// Botões interativos (listas/carrossel/botões avançados)
+func (c *BaileysClient) SendInteractive(instance, number string, interactive *models.InteractivePayload, opts *models.MessageOptions) (string, error) {
+	return c.postRequest("/v1/message/interactive", map[string]interface{}{
+		"instance":    instance,
+		"number":      number,
+		"interactive": interactive,
+		"options":     opts,
 	})
 }
 
@@ -426,4 +475,9 @@ func (c *BaileysClient) CreateGroup(instance, subject string, participants []str
 
 func (c *BaileysClient) GroupAction(instance, groupID string, participants []string, action string) error {
 	return nil
+}
+
+// ------------------ Logout Compatível ------------------ //
+func (c *BaileysClient) Logout(data map[string]interface{}) (string, error) {
+	return c.postRequest("/session/logout", data)
 }
